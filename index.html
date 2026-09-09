@@ -335,7 +335,8 @@
         </div>
     </div>
 
-    <audio id="remote-audio" autoplay style="display:none;"></audio>
+    <!-- 音声出力用audio要素 -->
+    <audio id="remote-audio" autoplay playsinline></audio>
 
     <script>
         let peer = null;
@@ -346,8 +347,9 @@
         let roomPassword = '';
         let isHost = false;
         let ringtoneTimer = null;
+        let searchTimer = null;
 
-        const PREFIX = 'puku_chat_v6_';
+        const PREFIX = 'puku_chat_v7_';
         const ROOMS_KEY = 'puku_chat_rooms_list';
 
         window.onload = function() {
@@ -445,8 +447,8 @@
             rooms.forEach(room => {
                 const item = document.createElement('div');
                 item.className = 'room-item';
-                // ★一覧タップ時は「部屋を作る（ホストとして待機）」と同じ動作にする
-                item.onclick = () => connectToRoomAsHost(room.id, room.pwd);
+                // ★一覧タップ時は「自動判定接続（スマート接続）」にする
+                item.onclick = () => connectToRoomSmart(room.id, room.pwd);
 
                 item.innerHTML = `
                     <div class="room-item-info">
@@ -483,7 +485,85 @@
             }
         }
 
-        // ホストとして接続（待機する側）
+        // ★トーク一覧タップ時のスマート接続（まずゲストとして探し、いなければホストに切り替える）
+        function connectToRoomSmart(roomId, password) {
+            currentRoomId = roomId;
+            roomPassword = password;
+            isHost = false;
+
+            if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
+
+            document.getElementById('room-list-screen').style.display = 'none';
+            document.getElementById('chat-screen').style.display = 'flex';
+            document.getElementById('chat-room-title').innerText = currentRoomId;
+            document.getElementById('connection-status').innerText = '接続中...';
+            
+            loadHistory();
+            if (peer) { peer.destroy(); }
+
+            const safeCode = convertToSafeId(currentRoomId);
+            const myPeerId = PREFIX + safeCode + '_guest_' + Math.floor(Math.random() * 1000);
+            peer = new Peer(myPeerId);
+
+            peer.on('open', () => {
+                const targetId = PREFIX + safeCode + '_host';
+                document.getElementById('connection-status').innerText = '相手を探しています...';
+                conn = peer.connect(targetId);
+                setupConnection();
+
+                // 5秒以内にホストが見つからなければ、自分がホスト（待機状態）に昇格する
+                searchTimer = setTimeout(() => {
+                    if (!conn || !conn.open) {
+                        if (document.getElementById('connection-status').innerText.includes('相手を探しています')) {
+                            upgradeToHost();
+                        }
+                    }
+                }, 5000);
+            });
+
+            peer.on('connection', (connection) => {
+                if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
+                conn = connection;
+                setupConnection();
+            });
+
+            peer.on('call', (call) => {
+                currentCall = call;
+                updateCallStatusUI('incoming', '🚨 着信中...', '「通話」ボタンで応答');
+                document.getElementById('start-call-btn').innerText = '📞 応答';
+                startRingtone();
+            });
+
+            peer.on('error', (err) => {
+                if (!isHost && err.type === 'peer-unavailable') {
+                    // まだホストがいない場合はそのまま待つ（タイムアウトでホストに昇格する）
+                }
+            });
+        }
+
+        // ゲストからホストへ昇格する処理
+        function upgradeToHost() {
+            if (peer) { peer.destroy(); }
+            isHost = true;
+            document.getElementById('connection-status').innerText = '待機中... (ホストになりました)';
+
+            const safeCode = convertToSafeId(currentRoomId);
+            const myPeerId = PREFIX + safeCode + '_host';
+            peer = new Peer(myPeerId);
+
+            peer.on('connection', (connection) => {
+                conn = connection;
+                setupConnection();
+            });
+
+            peer.on('call', (call) => {
+                currentCall = call;
+                updateCallStatusUI('incoming', '🚨 着信中...', '「通話」ボタンで応答');
+                document.getElementById('start-call-btn').innerText = '📞 応答';
+                startRingtone();
+            });
+        }
+
         function connectToRoomAsHost(roomId, password) {
             currentRoomId = roomId;
             roomPassword = password;
@@ -512,13 +592,8 @@
                 document.getElementById('start-call-btn').innerText = '📞 応答';
                 startRingtone();
             });
-
-            peer.on('error', (err) => {
-                document.getElementById('connection-status').innerText = '待機中...';
-            });
         }
 
-        // ゲストとして接続（後から入る側）
         function connectToRoomAsGuest(roomId, password) {
             currentRoomId = roomId;
             roomPassword = password;
@@ -548,13 +623,11 @@
                 document.getElementById('start-call-btn').innerText = '📞 応答';
                 startRingtone();
             });
-
-            peer.on('error', (err) => {
-                document.getElementById('connection-status').innerText = '接続エラー: 相手の部屋が見つかりません';
-            });
         }
 
         function setupConnection() {
+            if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
+
             conn.on('open', () => {
                 document.getElementById('connection-status').innerText = '接続完了';
                 if (!isHost) {
@@ -594,6 +667,7 @@
 
         function returnToList() {
             stopRingtone();
+            if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
             if (currentCall) currentCall.close();
             if (localStream) localStream.getTracks().forEach(t => t.stop());
             if (peer) peer.destroy();
@@ -678,7 +752,9 @@
         function setupCallEvents() {
             currentCall.on('stream', (stream) => {
                 const audio = document.getElementById('remote-audio');
-                audio.srcObject = stream; audio.play();
+                audio.srcObject = stream;
+                // スマホで強制的に音声を有効化して再生を試みる
+                audio.play().catch(e => console.log('Audio play error:', e));
                 updateCallStatusUI('connected', '🎙️ 通話中');
             });
             currentCall.on('close', hangUpCall);
