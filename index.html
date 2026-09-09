@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="apple-touch-icon" href="./icon.png">
+    <link rel="icon" type="image/png" href="./icon.png">
+    <title>通話アプリ</title>
+    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+    <style>
+        body { 
+            font-family: sans-serif; 
+            background: #1a1a1a; 
+            color: #fff; 
+            margin: 0;
+            padding: 10px;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        h2 { font-size: 1.2rem; margin: 5px 0; }
+
+        .container {
+            width: 100%;
+            max-width: 600px;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            box-sizing: border-box;
+        }
+
+        .screen {
+            background: #252525;
+            border-radius: 12px;
+            border: 1px solid #444;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            overflow: hidden;
+            box-sizing: border-box;
+        }
+
+        #room-list-screen {
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .room-add-box {
+            background: #2f2f2f;
+            padding: 10px;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            border: 1px solid #555;
+        }
+
+        input[type="text"], input[type="password"] { 
+            padding: 8px; 
+            border-radius: 6px; 
+            border: 1px solid #555; 
+            background: #333; 
+            color: #fff; 
+            width: 100%; 
+            box-sizing: border-box;
+            font-size: 14px; 
+        }
+
+        .puku-btn {
+            padding: 8px 16px;
+            font-size: 0.9rem;
+            font-weight: bold;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.25);
+            transition: all 0.15s ease;
+        }
+        .puku-btn:active { transform: translateY(2px); }
+        .create-btn { background: linear-gradient(to bottom, #1a90ff, #0066cc); }
+        .join-btn { background: linear-gradient(to bottom, #00c875, #009658); }
+
+        .room-list {
+            flex-grow: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 5px;
+        }
+
+        .room-item {
+            background: #333;
+            padding: 12px 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border: 1px solid #444;
+            transition: background 0.2s;
+        }
+        .room-item:hover { background: #3d3d3d; }
+        .room-item-info { display: flex; flex-direction: column; gap: 4px; }
+        .room-item-name { font-weight: bold; font-size: 1rem; color: #00ffcc; }
+        .room-item-sub { font-size: 0.75rem; color: #aaa; }
+        
+        .room-delete-btn {
+            background: #cc0000;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 0.75rem;
+            cursor: pointer;
+        }
+
+        #chat-screen {
+            display: none;
+            flex-direction: column;
+            height: 100%;
+        }
+
+        .chat-header {
+            background: #1f1f1f;
+            padding: 10px 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #333;
+        }
+
+        .back-to-list-btn {
+            background: #555;
+            color: #fff;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.8rem;
+        }
+
+        .call-bar {
+            background: #2b2b2b;
+            padding: 8px 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #444;
+            transition: background 0.3s ease;
+            gap: 10px;
+        }
+
+        @keyframes pulse-alert {
+            0% { opacity: 1; }
+            50% { opacity: 0.3; }
+            100% { opacity: 1; }
+        }
+
+        #call-status {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 2px;
+        }
+        .status-sub { font-size: 0.75rem; color: #ddd; font-weight: normal; }
+        .status-normal { color: #aaa; }
+        .status-normal .status-main { font-size: 0.85rem; font-weight: normal; }
+        .status-calling { color: #ffaa00; }
+        .status-calling .status-main { font-size: 1rem; font-weight: bold; animation: pulse-alert 1.2s infinite; }
+        .status-incoming { color: #ff3333; }
+        .status-incoming .status-main { font-size: 1.15rem; font-weight: bold; animation: pulse-alert 0.8s infinite; }
+        .status-connected { color: #00ffcc; }
+        .status-connected .status-main { font-size: 0.95rem; font-weight: bold; }
+
+        .call-btn {
+            background: linear-gradient(to bottom, #00c875, #009658);
+            color: #fff;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .hangup-btn {
+            background: linear-gradient(to bottom, #ff4d4d, #cc0000);
+            color: #fff;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-weight: bold;
+            cursor: pointer;
+            display: none;
+        }
+
+        #messages {
+            flex-grow: 1;
+            padding: 10px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            background: #222;
+        }
+
+        .message {
+            max-width: 75%;
+            padding: 8px 12px;
+            border-radius: 14px;
+            font-size: 0.95rem;
+            word-break: break-all;
+            line-height: 1.4;
+            position: relative;
+        }
+        .message.incoming { background: #333; color: #fff; align-self: flex-start; border-bottom-left-radius: 2px; }
+        .message.outgoing { background: linear-gradient(to bottom, #ff8c00, #e67300); color: #fff; align-self: flex-end; border-bottom-right-radius: 2px; }
+
+        .delete-msg-btn {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background: #ff4d4d;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 18px;
+            height: 18px;
+            font-size: 10px;
+            cursor: pointer;
+            display: none;
+            align-items: center;
+            justify-content: center;
+        }
+        .message.outgoing:hover .delete-msg-btn { display: flex; }
+        .message img { max-width: 100%; border-radius: 8px; display: block; margin-top: 4px; cursor: pointer; }
+
+        .input-bar {
+            background: #2a2a2a;
+            padding: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            border-top: 1px solid #444;
+        }
+        #chat-input {
+            flex-grow: 1;
+            background: #333;
+            border: 1px solid #555;
+            border-radius: 20px;
+            padding: 8px 12px;
+            color: #fff;
+            font-size: 14px;
+            outline: none;
+        }
+        .file-label {
+            background: #444;
+            color: #fff;
+            padding: 8px 12px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        #send-chat-btn {
+            background: linear-gradient(to bottom, #ff8c00, #e67300);
+            color: #fff;
+            border: none;
+            border-radius: 20px;
+            padding: 8px 14px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <!-- 1. トーク一覧画面（ホーム） -->
+        <div id="room-list-screen" class="screen">
+            <h2>💬 トーク一覧</h2>
+            
+            <div class="room-add-box">
+                <input type="text" id="new-room-id" placeholder="相手の名前 (例: 〇〇くん)">
+                <input type="password" id="new-room-pwd" placeholder="パスワード(必要な場合のみ)">
+                <div style="display: flex; gap: 6px;">
+                    <button class="puku-btn create-btn" style="flex:1;" onclick="openRoom(true)">部屋を作る</button>
+                    <button class="puku-btn join-btn" style="flex:1;" onclick="openRoom(false)">部屋に入る</button>
+                </div>
+            </div>
+
+            <div style="font-size: 0.85rem; color: #aaa; margin-top: 5px;">登録済みのトークルーム:</div>
+            <div id="room-list-container" class="room-list"></div>
+        </div>
+
+        <!-- 2. チャット＆通話画面 -->
+        <div id="chat-screen" class="screen">
+            <div class="chat-header">
+                <button class="back-to-list-btn" onclick="returnToList()">◀ トーク一覧へ</button>
+                <span id="chat-room-title" style="font-weight: bold; color: #00ffcc;"></span>
+                <span id="connection-status" style="font-size: 0.75rem; color: #aaa;">接続中...</span>
+            </div>
+
+            <div id="call-bar" class="call-bar">
+                <div id="call-status" class="status-normal">
+                    <div class="status-main">音声通話: 未接続</div>
+                </div>
+                <div>
+                    <button id="start-call-btn" class="call-btn" onclick="startCall()">📞 通話</button>
+                    <button id="hangup-btn" class="hangup-btn" onclick="hangUpCall()">🛑 切断</button>
+                </div>
+            </div>
+
+            <div id="messages"></div>
+
+            <div class="input-bar">
+                <label class="file-label" title="画像を送る">
+                    📷
+                    <input type="file" id="imageInput" accept="image/*" style="display: none;" onchange="sendImage(this)">
+                </label>
+                <input type="text" id="chat-input" placeholder="メッセージを入力..." onkeypress="handleKeyPress(event)">
+                <button id="send-chat-btn" onclick="sendText()">送信</button>
+            </div>
+        </div>
+    </div>
+
+    <audio id="remote-audio" autoplay style="display:none;"></audio>
+
+    <script>
+        let peer = null;
+        let conn = null;
+        let currentCall = null;
+        let localStream = null;
+        let currentRoomId = '';
+        let roomPassword = '';
+        let isHost = false;
+        let ringtoneTimer = null;
+
+        const PREFIX = 'puku_chat_v3_';
+        const ROOMS_KEY = 'puku_chat_rooms_list';
+
+        window.onload = function() {
+            renderRoomList();
+        };
+
+        // 日本語やスペースを安全なID（英数字のコード）に自動変換する関数
+        function convertToSafeId(inputStr) {
+            // 文字列をエンコードして特殊文字や日本語を安全な英数字に変換
+            let encoded = btoa(encodeURIComponent(inputStr)).replace(/[\+\/=]/g, '');
+            return 'room_' + encoded;
+        }
+
+        function getAudioContext() {
+            return new (window.AudioContext || window.webkitAudioContext)();
+        }
+
+        function startRingtone() {
+            stopRingtone();
+            try {
+                const audioCtx = getAudioContext();
+                function beep() {
+                    if (!ringtoneTimer) return;
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+                    osc.frequency.setValueAtTime(600, audioCtx.currentTime + 0.15);
+                    gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
+                    osc.connect(gain); gain.connect(audioCtx.destination);
+                    osc.start(); osc.stop(audioCtx.currentTime + 0.3);
+                }
+                beep();
+                ringtoneTimer = setInterval(beep, 1500);
+            } catch (e) {}
+        }
+
+        function stopRingtone() {
+            if (ringtoneTimer) { clearInterval(ringtoneTimer); ringtoneTimer = null; }
+        }
+
+        function playSendSound() {
+            try {
+                const audioCtx = getAudioContext();
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(587.33, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(440, audioCtx.currentTime + 0.1);
+                gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.12);
+                osc.connect(gain); gain.connect(audioCtx.destination);
+                osc.start(); osc.stop(audioCtx.currentTime + 0.12);
+            } catch (e) {}
+        }
+
+        function playReceiveSound() {
+            try {
+                const audioCtx = getAudioContext();
+                const now = audioCtx.currentTime;
+                [440, 554.37, 659.25].forEach((freq, index) => {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(freq, now + index * 0.08);
+                    gain.gain.setValueAtTime(0.3, now + index * 0.08);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + index * 0.08 + 0.15);
+                    osc.connect(gain); gain.connect(audioCtx.destination);
+                    osc.start(now + index * 0.08); osc.stop(now + index * 0.08 + 0.15);
+                });
+            } catch (e) {}
+        }
+
+        function getSavedRooms() {
+            return JSON.parse(localStorage.getItem(ROOMS_KEY)) || [];
+        }
+
+        function saveRoomToList(roomId, password) {
+            let rooms = getSavedRooms();
+            if (!rooms.some(r => r.id === roomId)) {
+                rooms.push({ id: roomId, pwd: password });
+                localStorage.setItem(ROOMS_KEY, JSON.stringify(rooms));
+            }
+        }
+
+        function renderRoomList() {
+            const container = document.getElementById('room-list-container');
+            container.innerHTML = '';
+            let rooms = getSavedRooms();
+
+            if (rooms.length === 0) {
+                container.innerHTML = '<div style="color: #777; font-size: 0.85rem; text-align: center; padding: 20px;">まだ部屋がありません。<br>上のフォームから作成または参加してください。</div>';
+                return;
+            }
+
+            rooms.forEach(room => {
+                const item = document.createElement('div');
+                item.className = 'room-item';
+                item.onclick = () => connectToRoom(room.id, room.pwd, true);
+
+                item.innerHTML = `
+                    <div class="room-item-info">
+                        <span class="room-item-name">💬 ${room.id}</span>
+                        <span class="room-item-sub">タップしてチャットを開く</span>
+                    </div>
+                    <button class="room-delete-btn" onclick="event.stopPropagation(); deleteRoom('${room.id}')">削除</button>
+                `;
+                container.appendChild(item);
+            });
+        }
+
+        function deleteRoom(roomId) {
+            if (confirm(`「${roomId}」のトークルームを一覧から削除しますか？`)) {
+                let rooms = getSavedRooms().filter(r => r.id !== roomId);
+                localStorage.setItem(ROOMS_KEY, JSON.stringify(rooms));
+                localStorage.removeItem(PREFIX + 'history_' + convertToSafeId(roomId));
+                renderRoomList();
+            }
+        }
+
+        function openRoom(asHost) {
+            const inputId = document.getElementById('new-room-id').value.trim();
+            const inputPwd = document.getElementById('new-room-pwd').value.trim();
+            if (!inputId) { alert('部屋名（相手の名前）を入力してください'); return; }
+
+            saveRoomToList(inputId, inputPwd);
+            renderRoomList();
+            connectToRoom(inputId, inputPwd, asHost);
+        }
+
+        function connectToRoom(roomId, password, asHost) {
+            currentRoomId = roomId;
+            roomPassword = password;
+            isHost = asHost;
+
+            document.getElementById('room-list-screen').style.display = 'none';
+            document.getElementById('chat-screen').style.display = 'flex';
+            document.getElementById('chat-room-title').innerText = currentRoomId;
+            document.getElementById('connection-status').innerText = '接続中...';
+            
+            loadHistory();
+
+            if (peer) { peer.destroy(); }
+
+            const safeCode = convertToSafeId(currentRoomId);
+            const myPeerId = PREFIX + safeCode + (isHost ? '_host' : '_guest_' + Math.floor(Math.random() * 1000));
+            peer = new Peer(myPeerId);
+
+            peer.on('open', () => {
+                if (!isHost) {
+                    const targetId = PREFIX + safeCode + '_host';
+                    conn = peer.connect(targetId);
+                    setupConnection();
+                } else {
+                    document.getElementById('connection-status').innerText = '待機中... (相手の接続待ち)';
+                }
+            });
+
+            peer.on('connection', (connection) => {
+                conn = connection;
+                setupConnection();
+            });
+
+            peer.on('call', (call) => {
+                currentCall = call;
+                updateCallStatusUI('incoming', '🚨 着信中...', '「通話」ボタンで応答');
+                document.getElementById('start-call-btn').innerText = '📞 応答';
+                startRingtone();
+            });
+
+            peer.on('error', (err) => {
+                document.getElementById('connection-status').innerText = '接続エラー: ' + err.type;
+            });
+        }
+
+        function setupConnection() {
+            conn.on('open', () => {
+                document.getElementById('connection-status').innerText = '接続完了';
+                if (!isHost) {
+                    conn.send({ type: 'auth_check', password: roomPassword || '' });
+                }
+            });
+
+            conn.on('close', () => {
+                document.getElementById('connection-status').innerText = '切断されました';
+            });
+
+            conn.on('error', () => {
+                document.getElementById('connection-status').innerText = '通信エラー';
+            });
+
+            conn.on('data', (data) => {
+                if (data.type === 'auth_check') {
+                    if (data.password === roomPassword) {
+                        conn.send({ type: 'auth_result', success: true });
+                    } else {
+                        conn.send({ type: 'auth_result', success: false });
+                        alert('パスワードが違います');
+                        conn.close();
+                    }
+                    return;
+                }
+                if (data.type === 'auth_result') {
+                    if (!data.success) { alert('パスワードが違います！'); return; }
+                }
+
+                if (data.type === 'chat') {
+                    playReceiveSound();
+                    saveAndAppendMessage(data.text, 'incoming', 'text');
+                } else if (data.type === 'image') {
+                    playReceiveSound();
+                    const blob = new Blob([data.buffer], { type: data.mimeType });
+                    saveAndAppendMessage(URL.createObjectURL(blob), 'incoming', 'image');
+                }
+            });
+        }
+
+        function returnToList() {
+            stopRingtone();
+            if (currentCall) currentCall.close();
+            if (localStream) localStream.getTracks().forEach(t => t.stop());
+            if (peer) peer.destroy();
+            
+            peer = null; conn = null; currentCall = null; localStream = null;
+            document.getElementById('chat-screen').style.display = 'none';
+            document.getElementById('room-list-screen').style.display = 'flex';
+            renderRoomList();
+        }
+
+        function getStorageKey() { return PREFIX + 'history_' + convertToSafeId(currentRoomId); }
+
+        function loadHistory() {
+            const messagesDiv = document.getElementById('messages');
+            messagesDiv.innerHTML = '';
+            let history = JSON.parse(localStorage.getItem(getStorageKey())) || [];
+            history.forEach(item => renderMessageElement(item.content, item.className, item.type, false));
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function saveAndAppendMessage(content, className, type) {
+            let history = JSON.parse(localStorage.getItem(getStorageKey())) || [];
+            if (history.length >= 50) history.shift();
+            history.push({ content, className, type });
+            localStorage.setItem(getStorageKey(), JSON.stringify(history));
+            renderMessageElement(content, className, type, true);
+        }
+
+        function renderMessageElement(content, className, type, scrollToBottom = false) {
+            const messagesDiv = document.getElementById('messages');
+            const msgEl = document.createElement('div');
+            msgEl.className = `message ${className}`;
+            
+            if (type === 'text') {
+                msgEl.innerText = content;
+            } else if (type === 'image') {
+                const img = document.createElement('img');
+                img.src = content;
+                img.onclick = () => window.open(content);
+                msgEl.appendChild(img);
+            }
+
+            if (className === 'outgoing') {
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'delete-msg-btn';
+                deleteBtn.innerHTML = '×';
+                deleteBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    let history = JSON.parse(localStorage.getItem(getStorageKey())) || [];
+                    const index = history.findIndex(item => item.content === content && item.className === 'outgoing');
+                    if (index !== -1) { history.splice(index, 1); localStorage.setItem(getStorageKey(), JSON.stringify(history)); }
+                    msgEl.remove();
+                };
+                msgEl.appendChild(deleteBtn);
+            }
+
+            messagesDiv.appendChild(msgEl);
+            if (scrollToBottom) messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        async function startCall() {
+            try {
+                stopRingtone();
+                localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                const safeCode = convertToSafeId(currentRoomId);
+                const targetId = PREFIX + safeCode + (isHost ? '_guest' : '_host');
+
+                if (currentCall) {
+                    currentCall.answer(localStream);
+                    setupCallEvents();
+                    updateCallStatusUI('connected', '🎙️ 通話中');
+                } else {
+                    updateCallStatusUI('calling', '⏳ 呼び出し中...');
+                    currentCall = peer.call(targetId, localStream);
+                    setupCallEvents();
+                }
+                document.getElementById('start-call-btn').style.display = 'none';
+                document.getElementById('hangup-btn').style.display = 'inline-block';
+            } catch (err) { alert('マイクエラー: ' + err.message); }
+        }
+
+        function setupCallEvents() {
+            currentCall.on('stream', (stream) => {
+                const audio = document.getElementById('remote-audio');
+                audio.srcObject = stream; audio.play();
+                updateCallStatusUI('connected', '🎙️ 通話中');
+            });
+            currentCall.on('close', hangUpCall);
+        }
+
+        function hangUpCall() {
+            stopRingtone();
+            if (currentCall) { currentCall.close(); currentCall = null; }
+            if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+            updateCallStatusUI('normal', '音声通話: 終了');
+            document.getElementById('start-call-btn').innerText = '📞 通話';
+            document.getElementById('start-call-btn').style.display = 'inline-block';
+            document.getElementById('hangup-btn').style.display = 'none';
+        }
+
+        function updateCallStatusUI(state, mainText, subText = '') {
+            const statusEl = document.getElementById('call-status');
+            const barEl = document.getElementById('call-bar');
+            statusEl.innerHTML = `<div class="status-main">${mainText}</div>` + (subText ? `<div class="status-sub">${subText}</div>` : '');
+            statusEl.className = 'status-' + state;
+            barEl.style.background = state === 'connected' ? '#1a332a' : (state === 'calling' ? '#362a15' : (state === 'incoming' ? '#421a1a' : '#2b2b2b'));
+        }
+
+        function handleKeyPress(e) { if (e.key === 'Enter') sendText(); }
+
+        function sendText() {
+            const input = document.getElementById('chat-input');
+            const text = input.value.trim();
+            if (!text || !conn || !conn.open) return;
+            conn.send({ type: 'chat', text: text });
+            playSendSound();
+            saveAndAppendMessage(text, 'outgoing', 'text');
+            input.value = '';
+        }
+
+        function sendImage(input) {
+            if (input.files.length === 0 || !conn || !conn.open) return;
+            const file = input.files[0];
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const buffer = e.target.result;
+                conn.send({ type: 'image', buffer: buffer, mimeType: file.type });
+                playSendSound();
+                saveAndAppendMessage(URL.createObjectURL(new Blob([buffer], { type: file.type })), 'outgoing', 'image');
+            };
+            reader.readAsArrayBuffer(file);
+            input.value = '';
+        }
+    </script>
+</body>
+</html>
