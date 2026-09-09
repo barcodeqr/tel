@@ -17,7 +17,7 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            height: 100dvh; /* スマホの高さの変化に追従 */
+            height: 100dvh;
             overflow: hidden;
             box-sizing: border-box;
         }
@@ -67,7 +67,7 @@
             color: #fff; 
             width: 100%; 
             box-sizing: border-box;
-            font-size: 16px; /* スマホでズームされないよう16px */
+            font-size: 16px;
         }
 
         .puku-btn {
@@ -257,7 +257,7 @@
             border-radius: 20px;
             padding: 8px 12px;
             color: #fff;
-            font-size: 16px; /* スマホズーム防止 */
+            font-size: 16px;
             outline: none;
         }
         .file-label {
@@ -346,8 +346,9 @@
         let roomPassword = '';
         let isHost = false;
         let ringtoneTimer = null;
+        let searchTimer = null;
 
-        const PREFIX = 'puku_chat_v4_';
+        const PREFIX = 'puku_chat_v5_';
         const ROOMS_KEY = 'puku_chat_rooms_list';
 
         window.onload = function() {
@@ -445,7 +446,7 @@
             rooms.forEach(room => {
                 const item = document.createElement('div');
                 item.className = 'room-item';
-                // リストをタップしたときは、まずゲストとして自動参加を試みるスマート接続
+                // 一覧タップ時は「ゲストとして参加を試みる（スマート接続）」
                 item.onclick = () => connectToRoom(room.id, room.pwd, false);
 
                 item.innerHTML = `
@@ -483,6 +484,8 @@
             roomPassword = password;
             isHost = asHost;
 
+            if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
+
             document.getElementById('room-list-screen').style.display = 'none';
             document.getElementById('chat-screen').style.display = 'flex';
             document.getElementById('chat-room-title').innerText = currentRoomId;
@@ -493,33 +496,32 @@
             if (peer) { peer.destroy(); }
 
             const safeCode = convertToSafeId(currentRoomId);
-            // ゲストとして入る場合、まずホストに接続を試みる
             const myPeerId = PREFIX + safeCode + (isHost ? '_host' : '_guest_' + Math.floor(Math.random() * 1000));
             peer = new Peer(myPeerId);
 
             peer.on('open', () => {
                 if (!isHost) {
-                    // ゲストとして起動した場合、ホストへ接続試行
                     const targetId = PREFIX + safeCode + '_host';
+                    document.getElementById('connection-status').innerText = '相手を探しています...';
                     conn = peer.connect(targetId);
                     setupConnection();
 
-                    // もしホストがまだいない（自分が最初に開いた）場合のフォールバック：
-                    // 数秒繋がらなければ自動的にホスト待機状態に切り替える
-                    setTimeout(() => {
+                    // ★ホストを探す時間を「7秒」に延長して余裕を持たせる
+                    searchTimer = setTimeout(() => {
                         if (!conn || !conn.open) {
-                            if (document.getElementById('connection-status').innerText === '接続中...') {
-                                document.getElementById('connection-status').innerText = '待機中... (ホストに切り替えました)';
-                                // IDをホスト用に再取得する代わりにリスナーで待機受け入れ
+                            if (document.getElementById('connection-status').innerText.includes('相手を探しています')) {
+                                document.getElementById('connection-status').innerText = '待機中... (自分がホストになりました)';
+                                isHost = true; // 自分がホスト側に切り替わる
                             }
                         }
-                    }, 3000);
+                    }, 7000);
                 } else {
                     document.getElementById('connection-status').innerText = '待機中... (相手の接続待ち)';
                 }
             });
 
             peer.on('connection', (connection) => {
+                if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
                 conn = connection;
                 setupConnection();
             });
@@ -532,17 +534,18 @@
             });
 
             peer.on('error', (err) => {
-                // ゲストとして入ろうとしてホストがいないエラーの場合、自動でホストに回すかメッセージ表示
                 if (!isHost && err.type === 'peer-unavailable') {
-                    document.getElementById('connection-status').innerText = '待機中... (ホストとして待機します)';
+                    // まだホストがいない場合はエラーにせず待機に回す
+                    document.getElementById('connection-status').innerText = '相手を探しています...';
                 } else {
-                    document.getElementById('connection-status').innerText = '接続エラー';
+                    document.getElementById('connection-status').innerText = '接続エラー: ' + err.type;
                 }
             });
         }
 
         function setupConnection() {
             conn.on('open', () => {
+                if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
                 document.getElementById('connection-status').innerText = '接続完了';
                 if (!isHost) {
                     conn.send({ type: 'auth_check', password: roomPassword || '' });
@@ -551,6 +554,10 @@
 
             conn.on('close', () => {
                 document.getElementById('connection-status').innerText = '切断されました';
+            });
+
+            conn.on('error', () => {
+                document.getElementById('connection-status').innerText = '通信エラー';
             });
 
             conn.on('data', (data) => {
@@ -581,6 +588,7 @@
 
         function returnToList() {
             stopRingtone();
+            if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
             if (currentCall) currentCall.close();
             if (localStream) localStream.getTracks().forEach(t => t.stop());
             if (peer) peer.destroy();
