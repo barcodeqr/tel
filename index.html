@@ -346,9 +346,8 @@
         let roomPassword = '';
         let isHost = false;
         let ringtoneTimer = null;
-        let searchTimer = null;
 
-        const PREFIX = 'puku_chat_v5_';
+        const PREFIX = 'puku_chat_v6_';
         const ROOMS_KEY = 'puku_chat_rooms_list';
 
         window.onload = function() {
@@ -446,8 +445,8 @@
             rooms.forEach(room => {
                 const item = document.createElement('div');
                 item.className = 'room-item';
-                // 一覧タップ時は「ゲストとして参加を試みる（スマート接続）」
-                item.onclick = () => connectToRoom(room.id, room.pwd, false);
+                // ★一覧タップ時は「部屋を作る（ホストとして待機）」と同じ動作にする
+                item.onclick = () => connectToRoomAsHost(room.id, room.pwd);
 
                 item.innerHTML = `
                     <div class="room-item-info">
@@ -476,52 +475,33 @@
 
             saveRoomToList(inputId, inputPwd);
             renderRoomList();
-            connectToRoom(inputId, inputPwd, asHost);
+            
+            if (asHost) {
+                connectToRoomAsHost(inputId, inputPwd);
+            } else {
+                connectToRoomAsGuest(inputId, inputPwd);
+            }
         }
 
-        function connectToRoom(roomId, password, asHost) {
+        // ホストとして接続（待機する側）
+        function connectToRoomAsHost(roomId, password) {
             currentRoomId = roomId;
             roomPassword = password;
-            isHost = asHost;
-
-            if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
+            isHost = true;
 
             document.getElementById('room-list-screen').style.display = 'none';
             document.getElementById('chat-screen').style.display = 'flex';
             document.getElementById('chat-room-title').innerText = currentRoomId;
-            document.getElementById('connection-status').innerText = '接続中...';
+            document.getElementById('connection-status').innerText = '待機中... (相手の接続待ち)';
             
             loadHistory();
-
             if (peer) { peer.destroy(); }
 
             const safeCode = convertToSafeId(currentRoomId);
-            const myPeerId = PREFIX + safeCode + (isHost ? '_host' : '_guest_' + Math.floor(Math.random() * 1000));
+            const myPeerId = PREFIX + safeCode + '_host';
             peer = new Peer(myPeerId);
 
-            peer.on('open', () => {
-                if (!isHost) {
-                    const targetId = PREFIX + safeCode + '_host';
-                    document.getElementById('connection-status').innerText = '相手を探しています...';
-                    conn = peer.connect(targetId);
-                    setupConnection();
-
-                    // ★ホストを探す時間を「7秒」に延長して余裕を持たせる
-                    searchTimer = setTimeout(() => {
-                        if (!conn || !conn.open) {
-                            if (document.getElementById('connection-status').innerText.includes('相手を探しています')) {
-                                document.getElementById('connection-status').innerText = '待機中... (自分がホストになりました)';
-                                isHost = true; // 自分がホスト側に切り替わる
-                            }
-                        }
-                    }, 7000);
-                } else {
-                    document.getElementById('connection-status').innerText = '待機中... (相手の接続待ち)';
-                }
-            });
-
             peer.on('connection', (connection) => {
-                if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
                 conn = connection;
                 setupConnection();
             });
@@ -534,18 +514,48 @@
             });
 
             peer.on('error', (err) => {
-                if (!isHost && err.type === 'peer-unavailable') {
-                    // まだホストがいない場合はエラーにせず待機に回す
-                    document.getElementById('connection-status').innerText = '相手を探しています...';
-                } else {
-                    document.getElementById('connection-status').innerText = '接続エラー: ' + err.type;
-                }
+                document.getElementById('connection-status').innerText = '待機中...';
+            });
+        }
+
+        // ゲストとして接続（後から入る側）
+        function connectToRoomAsGuest(roomId, password) {
+            currentRoomId = roomId;
+            roomPassword = password;
+            isHost = false;
+
+            document.getElementById('room-list-screen').style.display = 'none';
+            document.getElementById('chat-screen').style.display = 'flex';
+            document.getElementById('chat-room-title').innerText = currentRoomId;
+            document.getElementById('connection-status').innerText = '接続中...';
+            
+            loadHistory();
+            if (peer) { peer.destroy(); }
+
+            const safeCode = convertToSafeId(currentRoomId);
+            const myPeerId = PREFIX + safeCode + '_guest_' + Math.floor(Math.random() * 1000);
+            peer = new Peer(myPeerId);
+
+            peer.on('open', () => {
+                const targetId = PREFIX + safeCode + '_host';
+                conn = peer.connect(targetId);
+                setupConnection();
+            });
+
+            peer.on('call', (call) => {
+                currentCall = call;
+                updateCallStatusUI('incoming', '🚨 着信中...', '「通話」ボタンで応答');
+                document.getElementById('start-call-btn').innerText = '📞 応答';
+                startRingtone();
+            });
+
+            peer.on('error', (err) => {
+                document.getElementById('connection-status').innerText = '接続エラー: 相手の部屋が見つかりません';
             });
         }
 
         function setupConnection() {
             conn.on('open', () => {
-                if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
                 document.getElementById('connection-status').innerText = '接続完了';
                 if (!isHost) {
                     conn.send({ type: 'auth_check', password: roomPassword || '' });
@@ -554,10 +564,6 @@
 
             conn.on('close', () => {
                 document.getElementById('connection-status').innerText = '切断されました';
-            });
-
-            conn.on('error', () => {
-                document.getElementById('connection-status').innerText = '通信エラー';
             });
 
             conn.on('data', (data) => {
@@ -588,7 +594,6 @@
 
         function returnToList() {
             stopRingtone();
-            if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
             if (currentCall) currentCall.close();
             if (localStream) localStream.getTracks().forEach(t => t.stop());
             if (peer) peer.destroy();
