@@ -335,7 +335,6 @@
         </div>
     </div>
 
-    <!-- 音声出力用audio要素 -->
     <audio id="remote-audio" autoplay playsinline></audio>
 
     <script>
@@ -349,7 +348,7 @@
         let ringtoneTimer = null;
         let searchTimer = null;
 
-        const PREFIX = 'puku_chat_v7_';
+        const PREFIX = 'puku_chat_v8_';
         const ROOMS_KEY = 'puku_chat_rooms_list';
 
         window.onload = function() {
@@ -447,7 +446,6 @@
             rooms.forEach(room => {
                 const item = document.createElement('div');
                 item.className = 'room-item';
-                // ★一覧タップ時は「自動判定接続（スマート接続）」にする
                 item.onclick = () => connectToRoomSmart(room.id, room.pwd);
 
                 item.innerHTML = `
@@ -485,13 +483,21 @@
             }
         }
 
-        // ★トーク一覧タップ時のスマート接続（まずゲストとして探し、いなければホストに切り替える）
+        // 完全リセット付きのクリーンアップ
+        function cleanupPeer() {
+            if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
+            if (currentCall) { currentCall.close(); currentCall = null; }
+            if (conn) { conn.close(); conn = null; }
+            if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+            if (peer) { peer.destroy(); peer = null; }
+        }
+
         function connectToRoomSmart(roomId, password) {
             currentRoomId = roomId;
             roomPassword = password;
             isHost = false;
 
-            if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
+            cleanupPeer();
 
             document.getElementById('room-list-screen').style.display = 'none';
             document.getElementById('chat-screen').style.display = 'flex';
@@ -499,10 +505,9 @@
             document.getElementById('connection-status').innerText = '接続中...';
             
             loadHistory();
-            if (peer) { peer.destroy(); }
 
             const safeCode = convertToSafeId(currentRoomId);
-            const myPeerId = PREFIX + safeCode + '_guest_' + Math.floor(Math.random() * 1000);
+            const myPeerId = PREFIX + safeCode + '_guest_' + Math.floor(Math.random() * 10000);
             peer = new Peer(myPeerId);
 
             peer.on('open', () => {
@@ -511,14 +516,13 @@
                 conn = peer.connect(targetId);
                 setupConnection();
 
-                // 5秒以内にホストが見つからなければ、自分がホスト（待機状態）に昇格する
                 searchTimer = setTimeout(() => {
                     if (!conn || !conn.open) {
                         if (document.getElementById('connection-status').innerText.includes('相手を探しています')) {
                             upgradeToHost();
                         }
                     }
-                }, 5000);
+                }, 4000);
             });
 
             peer.on('connection', (connection) => {
@@ -533,17 +537,10 @@
                 document.getElementById('start-call-btn').innerText = '📞 応答';
                 startRingtone();
             });
-
-            peer.on('error', (err) => {
-                if (!isHost && err.type === 'peer-unavailable') {
-                    // まだホストがいない場合はそのまま待つ（タイムアウトでホストに昇格する）
-                }
-            });
         }
 
-        // ゲストからホストへ昇格する処理
         function upgradeToHost() {
-            if (peer) { peer.destroy(); }
+            if (peer) { peer.destroy(); peer = null; }
             isHost = true;
             document.getElementById('connection-status').innerText = '待機中... (ホストになりました)';
 
@@ -569,13 +566,14 @@
             roomPassword = password;
             isHost = true;
 
+            cleanupPeer();
+
             document.getElementById('room-list-screen').style.display = 'none';
             document.getElementById('chat-screen').style.display = 'flex';
             document.getElementById('chat-room-title').innerText = currentRoomId;
             document.getElementById('connection-status').innerText = '待機中... (相手の接続待ち)';
             
             loadHistory();
-            if (peer) { peer.destroy(); }
 
             const safeCode = convertToSafeId(currentRoomId);
             const myPeerId = PREFIX + safeCode + '_host';
@@ -599,16 +597,17 @@
             roomPassword = password;
             isHost = false;
 
+            cleanupPeer();
+
             document.getElementById('room-list-screen').style.display = 'none';
             document.getElementById('chat-screen').style.display = 'flex';
             document.getElementById('chat-room-title').innerText = currentRoomId;
             document.getElementById('connection-status').innerText = '接続中...';
             
             loadHistory();
-            if (peer) { peer.destroy(); }
 
             const safeCode = convertToSafeId(currentRoomId);
-            const myPeerId = PREFIX + safeCode + '_guest_' + Math.floor(Math.random() * 1000);
+            const myPeerId = PREFIX + safeCode + '_guest_' + Math.floor(Math.random() * 10000);
             peer = new Peer(myPeerId);
 
             peer.on('open', () => {
@@ -627,6 +626,8 @@
 
         function setupConnection() {
             if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
+
+            if (!conn) return;
 
             conn.on('open', () => {
                 document.getElementById('connection-status').innerText = '接続完了';
@@ -667,12 +668,8 @@
 
         function returnToList() {
             stopRingtone();
-            if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
-            if (currentCall) currentCall.close();
-            if (localStream) localStream.getTracks().forEach(t => t.stop());
-            if (peer) peer.destroy();
+            cleanupPeer();
             
-            peer = null; conn = null; currentCall = null; localStream = null;
             document.getElementById('chat-screen').style.display = 'none';
             document.getElementById('room-list-screen').style.display = 'flex';
             renderRoomList();
@@ -731,7 +728,11 @@
         async function startCall() {
             try {
                 stopRingtone();
-                localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                // Androidでの音声漏れ（スピーカー出力）を防ぐためエコーキャンセル等を最適化
+                localStream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, 
+                    video: false 
+                });
                 const safeCode = convertToSafeId(currentRoomId);
                 const targetId = PREFIX + safeCode + (isHost ? '_guest' : '_host');
 
@@ -753,7 +754,6 @@
             currentCall.on('stream', (stream) => {
                 const audio = document.getElementById('remote-audio');
                 audio.srcObject = stream;
-                // スマホで強制的に音声を有効化して再生を試みる
                 audio.play().catch(e => console.log('Audio play error:', e));
                 updateCallStatusUI('connected', '🎙️ 通話中');
             });
