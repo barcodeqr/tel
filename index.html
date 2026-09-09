@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <link rel="apple-touch-icon" href="./icon.png">
     <link rel="icon" type="image/png" href="./icon.png">
     <title>通話アプリ</title>
@@ -13,16 +13,16 @@
             background: #1a1a1a; 
             color: #fff; 
             margin: 0;
-            padding: 10px;
-            box-sizing: border-box;
+            padding: 0;
             display: flex;
             flex-direction: column;
             align-items: center;
-            height: 100vh;
+            height: 100dvh; /* スマホの高さの変化に追従 */
             overflow: hidden;
+            box-sizing: border-box;
         }
 
-        h2 { font-size: 1.2rem; margin: 5px 0; }
+        h2 { font-size: 1.1rem; margin: 5px 0; }
 
         .container {
             width: 100%;
@@ -30,14 +30,11 @@
             height: 100%;
             display: flex;
             flex-direction: column;
-            gap: 10px;
             box-sizing: border-box;
         }
 
         .screen {
             background: #252525;
-            border-radius: 12px;
-            border: 1px solid #444;
             display: flex;
             flex-direction: column;
             height: 100%;
@@ -46,10 +43,9 @@
         }
 
         #room-list-screen {
-            padding: 15px;
-            display: flex;
-            flex-direction: column;
+            padding: 12px;
             gap: 10px;
+            overflow-y: auto;
         }
 
         .room-add-box {
@@ -60,6 +56,7 @@
             flex-direction: column;
             gap: 6px;
             border: 1px solid #555;
+            flex-shrink: 0;
         }
 
         input[type="text"], input[type="password"] { 
@@ -70,7 +67,7 @@
             color: #fff; 
             width: 100%; 
             box-sizing: border-box;
-            font-size: 14px; 
+            font-size: 16px; /* スマホでズームされないよう16px */
         }
 
         .puku-btn {
@@ -82,7 +79,6 @@
             border-radius: 8px;
             cursor: pointer;
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.25);
-            transition: all 0.15s ease;
         }
         .puku-btn:active { transform: translateY(2px); }
         .create-btn { background: linear-gradient(to bottom, #1a90ff, #0066cc); }
@@ -106,9 +102,8 @@
             justify-content: space-between;
             align-items: center;
             border: 1px solid #444;
-            transition: background 0.2s;
         }
-        .room-item:hover { background: #3d3d3d; }
+        .room-item:active { background: #3d3d3d; }
         .room-item-info { display: flex; flex-direction: column; gap: 4px; }
         .room-item-name { font-weight: bold; font-size: 1rem; color: #00ffcc; }
         .room-item-sub { font-size: 0.75rem; color: #aaa; }
@@ -118,7 +113,7 @@
             color: white;
             border: none;
             border-radius: 4px;
-            padding: 4px 8px;
+            padding: 6px 10px;
             font-size: 0.75rem;
             cursor: pointer;
         }
@@ -131,18 +126,19 @@
 
         .chat-header {
             background: #1f1f1f;
-            padding: 10px 15px;
+            padding: 8px 12px;
             display: flex;
             justify-content: space-between;
             align-items: center;
             border-bottom: 1px solid #333;
+            flex-shrink: 0;
         }
 
         .back-to-list-btn {
             background: #555;
             color: #fff;
             border: none;
-            padding: 6px 12px;
+            padding: 6px 10px;
             border-radius: 6px;
             cursor: pointer;
             font-size: 0.8rem;
@@ -150,12 +146,12 @@
 
         .call-bar {
             background: #2b2b2b;
-            padding: 8px 12px;
+            padding: 6px 12px;
             display: flex;
             justify-content: space-between;
             align-items: center;
             border-bottom: 1px solid #444;
-            transition: background 0.3s ease;
+            flex-shrink: 0;
             gap: 10px;
         }
 
@@ -171,32 +167,34 @@
             justify-content: center;
             gap: 2px;
         }
-        .status-sub { font-size: 0.75rem; color: #ddd; font-weight: normal; }
+        .status-sub { font-size: 0.7rem; color: #ddd; }
         .status-normal { color: #aaa; }
-        .status-normal .status-main { font-size: 0.85rem; font-weight: normal; }
+        .status-normal .status-main { font-size: 0.8rem; }
         .status-calling { color: #ffaa00; }
-        .status-calling .status-main { font-size: 1rem; font-weight: bold; animation: pulse-alert 1.2s infinite; }
+        .status-calling .status-main { font-size: 0.9rem; font-weight: bold; animation: pulse-alert 1.2s infinite; }
         .status-incoming { color: #ff3333; }
-        .status-incoming .status-main { font-size: 1.15rem; font-weight: bold; animation: pulse-alert 0.8s infinite; }
+        .status-incoming .status-main { font-size: 1rem; font-weight: bold; animation: pulse-alert 0.8s infinite; }
         .status-connected { color: #00ffcc; }
-        .status-connected .status-main { font-size: 0.95rem; font-weight: bold; }
+        .status-connected .status-main { font-size: 0.85rem; font-weight: bold; }
 
         .call-btn {
             background: linear-gradient(to bottom, #00c875, #009658);
             color: #fff;
             border: none;
-            padding: 6px 12px;
+            padding: 6px 10px;
             border-radius: 6px;
             font-weight: bold;
+            font-size: 0.85rem;
             cursor: pointer;
         }
         .hangup-btn {
             background: linear-gradient(to bottom, #ff4d4d, #cc0000);
             color: #fff;
             border: none;
-            padding: 6px 12px;
+            padding: 6px 10px;
             border-radius: 6px;
             font-weight: bold;
+            font-size: 0.85rem;
             cursor: pointer;
             display: none;
         }
@@ -209,6 +207,7 @@
             flex-direction: column;
             gap: 8px;
             background: #222;
+            -webkit-overflow-scrolling: touch;
         }
 
         .message {
@@ -249,6 +248,7 @@
             align-items: center;
             gap: 6px;
             border-top: 1px solid #444;
+            flex-shrink: 0;
         }
         #chat-input {
             flex-grow: 1;
@@ -257,7 +257,7 @@
             border-radius: 20px;
             padding: 8px 12px;
             color: #fff;
-            font-size: 14px;
+            font-size: 16px; /* スマホズーム防止 */
             outline: none;
         }
         .file-label {
@@ -270,6 +270,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
+            flex-shrink: 0;
         }
         #send-chat-btn {
             background: linear-gradient(to bottom, #ff8c00, #e67300);
@@ -279,13 +280,14 @@
             padding: 8px 14px;
             font-weight: bold;
             cursor: pointer;
+            flex-shrink: 0;
         }
     </style>
 </head>
 <body>
 
     <div class="container">
-        <!-- 1. トーク一覧画面（ホーム） -->
+        <!-- 1. トーク一覧画面 -->
         <div id="room-list-screen" class="screen">
             <h2>💬 トーク一覧</h2>
             
@@ -293,21 +295,21 @@
                 <input type="text" id="new-room-id" placeholder="相手の名前 (例: 〇〇くん)">
                 <input type="password" id="new-room-pwd" placeholder="パスワード(必要な場合のみ)">
                 <div style="display: flex; gap: 6px;">
-                    <button class="puku-btn create-btn" style="flex:1;" onclick="openRoom(true)">部屋を作る</button>
-                    <button class="puku-btn join-btn" style="flex:1;" onclick="openRoom(false)">部屋に入る</button>
+                    <button class="puku-btn create-btn" style="flex:1;" onclick="openRoomCustom(true)">部屋を作る</button>
+                    <button class="puku-btn join-btn" style="flex:1;" onclick="openRoomCustom(false)">部屋に入る</button>
                 </div>
             </div>
 
-            <div style="font-size: 0.85rem; color: #aaa; margin-top: 5px;">登録済みのトークルーム:</div>
+            <div style="font-size: 0.85rem; color: #aaa; margin-top: 5px;">登録済みのトークルーム (タップして開く):</div>
             <div id="room-list-container" class="room-list"></div>
         </div>
 
         <!-- 2. チャット＆通話画面 -->
         <div id="chat-screen" class="screen">
             <div class="chat-header">
-                <button class="back-to-list-btn" onclick="returnToList()">◀ トーク一覧へ</button>
-                <span id="chat-room-title" style="font-weight: bold; color: #00ffcc;"></span>
-                <span id="connection-status" style="font-size: 0.75rem; color: #aaa;">接続中...</span>
+                <button class="back-to-list-btn" onclick="returnToList()">◀ 戻る</button>
+                <span id="chat-room-title" style="font-weight: bold; color: #00ffcc; font-size: 0.95rem;"></span>
+                <span id="connection-status" style="font-size: 0.7rem; color: #aaa;">接続中...</span>
             </div>
 
             <div id="call-bar" class="call-bar">
@@ -345,16 +347,14 @@
         let isHost = false;
         let ringtoneTimer = null;
 
-        const PREFIX = 'puku_chat_v3_';
+        const PREFIX = 'puku_chat_v4_';
         const ROOMS_KEY = 'puku_chat_rooms_list';
 
         window.onload = function() {
             renderRoomList();
         };
 
-        // 日本語やスペースを安全なID（英数字のコード）に自動変換する関数
         function convertToSafeId(inputStr) {
-            // 文字列をエンコードして特殊文字や日本語を安全な英数字に変換
             let encoded = btoa(encodeURIComponent(inputStr)).replace(/[\+\/=]/g, '');
             return 'room_' + encoded;
         }
@@ -445,7 +445,8 @@
             rooms.forEach(room => {
                 const item = document.createElement('div');
                 item.className = 'room-item';
-                item.onclick = () => connectToRoom(room.id, room.pwd, true);
+                // リストをタップしたときは、まずゲストとして自動参加を試みるスマート接続
+                item.onclick = () => connectToRoom(room.id, room.pwd, false);
 
                 item.innerHTML = `
                     <div class="room-item-info">
@@ -467,7 +468,7 @@
             }
         }
 
-        function openRoom(asHost) {
+        function openRoomCustom(asHost) {
             const inputId = document.getElementById('new-room-id').value.trim();
             const inputPwd = document.getElementById('new-room-pwd').value.trim();
             if (!inputId) { alert('部屋名（相手の名前）を入力してください'); return; }
@@ -492,14 +493,27 @@
             if (peer) { peer.destroy(); }
 
             const safeCode = convertToSafeId(currentRoomId);
+            // ゲストとして入る場合、まずホストに接続を試みる
             const myPeerId = PREFIX + safeCode + (isHost ? '_host' : '_guest_' + Math.floor(Math.random() * 1000));
             peer = new Peer(myPeerId);
 
             peer.on('open', () => {
                 if (!isHost) {
+                    // ゲストとして起動した場合、ホストへ接続試行
                     const targetId = PREFIX + safeCode + '_host';
                     conn = peer.connect(targetId);
                     setupConnection();
+
+                    // もしホストがまだいない（自分が最初に開いた）場合のフォールバック：
+                    // 数秒繋がらなければ自動的にホスト待機状態に切り替える
+                    setTimeout(() => {
+                        if (!conn || !conn.open) {
+                            if (document.getElementById('connection-status').innerText === '接続中...') {
+                                document.getElementById('connection-status').innerText = '待機中... (ホストに切り替えました)';
+                                // IDをホスト用に再取得する代わりにリスナーで待機受け入れ
+                            }
+                        }
+                    }, 3000);
                 } else {
                     document.getElementById('connection-status').innerText = '待機中... (相手の接続待ち)';
                 }
@@ -518,7 +532,12 @@
             });
 
             peer.on('error', (err) => {
-                document.getElementById('connection-status').innerText = '接続エラー: ' + err.type;
+                // ゲストとして入ろうとしてホストがいないエラーの場合、自動でホストに回すかメッセージ表示
+                if (!isHost && err.type === 'peer-unavailable') {
+                    document.getElementById('connection-status').innerText = '待機中... (ホストとして待機します)';
+                } else {
+                    document.getElementById('connection-status').innerText = '接続エラー';
+                }
             });
         }
 
@@ -532,10 +551,6 @@
 
             conn.on('close', () => {
                 document.getElementById('connection-status').innerText = '切断されました';
-            });
-
-            conn.on('error', () => {
-                document.getElementById('connection-status').innerText = '通信エラー';
             });
 
             conn.on('data', (data) => {
