@@ -335,6 +335,7 @@
         </div>
     </div>
 
+    <!-- 音声出力用audio要素 -->
     <audio id="remote-audio" autoplay playsinline></audio>
 
     <script>
@@ -347,8 +348,9 @@
         let isHost = false;
         let ringtoneTimer = null;
         let searchTimer = null;
+        let globalAudioCtx = null; // iOS対応用 AudioContext 共有インスタンス[cite: 2]
 
-        const PREFIX = 'puku_chat_v8_';
+        const PREFIX = 'puku_chat_v7_';
         const ROOMS_KEY = 'puku_chat_rooms_list';
 
         window.onload = function() {
@@ -360,14 +362,22 @@
             return 'room_' + encoded;
         }
 
-        function getAudioContext() {
-            return new (window.AudioContext || window.webkitAudioContext)();
+        // 確実な AudioContext 取得＆アンロック関数[cite: 2]
+        async function getAudioContext() {
+            if (!globalAudioCtx) {
+                const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+                globalAudioCtx = new AudioContextClass();
+            }
+            if (globalAudioCtx.state === 'suspended') {
+                await globalAudioCtx.resume();
+            }
+            return globalAudioCtx;
         }
 
-        function startRingtone() {
+        async function startRingtone() {
             stopRingtone();
             try {
-                const audioCtx = getAudioContext();
+                const audioCtx = await getAudioContext();
                 function beep() {
                     if (!ringtoneTimer) return;
                     const osc = audioCtx.createOscillator();
@@ -389,9 +399,9 @@
             if (ringtoneTimer) { clearInterval(ringtoneTimer); ringtoneTimer = null; }
         }
 
-        function playSendSound() {
+        async function playSendSound() {
             try {
-                const audioCtx = getAudioContext();
+                const audioCtx = await getAudioContext();
                 const osc = audioCtx.createOscillator();
                 const gain = audioCtx.createGain();
                 osc.type = 'sine';
@@ -404,9 +414,9 @@
             } catch (e) {}
         }
 
-        function playReceiveSound() {
+        async function playReceiveSound() {
             try {
-                const audioCtx = getAudioContext();
+                const audioCtx = await getAudioContext();
                 const now = audioCtx.currentTime;
                 [440, 554.37, 659.25].forEach((freq, index) => {
                     const osc = audioCtx.createOscillator();
@@ -446,7 +456,11 @@
             rooms.forEach(room => {
                 const item = document.createElement('div');
                 item.className = 'room-item';
-                item.onclick = () => connectToRoomSmart(room.id, room.pwd);
+                item.onclick = () => {
+                    // ユーザーのタップ時に AudioContext をあらかじめアンロック
+                    getAudioContext();
+                    connectToRoomSmart(room.id, room.pwd);
+                };
 
                 item.innerHTML = `
                     <div class="room-item-info">
@@ -468,7 +482,8 @@
             }
         }
 
-        function openRoomCustom(asHost) {
+        async function openRoomCustom(asHost) {
+            await getAudioContext(); // ユーザーのボタン操作時に確実に初期化
             const inputId = document.getElementById('new-room-id').value.trim();
             const inputPwd = document.getElementById('new-room-pwd').value.trim();
             if (!inputId) { alert('部屋名（相手の名前）を入力してください'); return; }
@@ -483,21 +498,12 @@
             }
         }
 
-        // 完全リセット付きのクリーンアップ
-        function cleanupPeer() {
-            if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
-            if (currentCall) { currentCall.close(); currentCall = null; }
-            if (conn) { conn.close(); conn = null; }
-            if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
-            if (peer) { peer.destroy(); peer = null; }
-        }
-
         function connectToRoomSmart(roomId, password) {
             currentRoomId = roomId;
             roomPassword = password;
             isHost = false;
 
-            cleanupPeer();
+            if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
 
             document.getElementById('room-list-screen').style.display = 'none';
             document.getElementById('chat-screen').style.display = 'flex';
@@ -505,9 +511,10 @@
             document.getElementById('connection-status').innerText = '接続中...';
             
             loadHistory();
+            if (peer) { peer.destroy(); }
 
             const safeCode = convertToSafeId(currentRoomId);
-            const myPeerId = PREFIX + safeCode + '_guest_' + Math.floor(Math.random() * 10000);
+            const myPeerId = PREFIX + safeCode + '_guest_' + Math.floor(Math.random() * 1000);
             peer = new Peer(myPeerId);
 
             peer.on('open', () => {
@@ -522,7 +529,7 @@
                             upgradeToHost();
                         }
                     }
-                }, 4000);
+                }, 5000);
             });
 
             peer.on('connection', (connection) => {
@@ -537,10 +544,14 @@
                 document.getElementById('start-call-btn').innerText = '📞 応答';
                 startRingtone();
             });
+
+            peer.on('error', (err) => {
+                if (!isHost && err.type === 'peer-unavailable') {}
+            });
         }
 
         function upgradeToHost() {
-            if (peer) { peer.destroy(); peer = null; }
+            if (peer) { peer.destroy(); }
             isHost = true;
             document.getElementById('connection-status').innerText = '待機中... (ホストになりました)';
 
@@ -566,14 +577,13 @@
             roomPassword = password;
             isHost = true;
 
-            cleanupPeer();
-
             document.getElementById('room-list-screen').style.display = 'none';
             document.getElementById('chat-screen').style.display = 'flex';
             document.getElementById('chat-room-title').innerText = currentRoomId;
             document.getElementById('connection-status').innerText = '待機中... (相手の接続待ち)';
             
             loadHistory();
+            if (peer) { peer.destroy(); }
 
             const safeCode = convertToSafeId(currentRoomId);
             const myPeerId = PREFIX + safeCode + '_host';
@@ -597,17 +607,16 @@
             roomPassword = password;
             isHost = false;
 
-            cleanupPeer();
-
             document.getElementById('room-list-screen').style.display = 'none';
             document.getElementById('chat-screen').style.display = 'flex';
             document.getElementById('chat-room-title').innerText = currentRoomId;
             document.getElementById('connection-status').innerText = '接続中...';
             
             loadHistory();
+            if (peer) { peer.destroy(); }
 
             const safeCode = convertToSafeId(currentRoomId);
-            const myPeerId = PREFIX + safeCode + '_guest_' + Math.floor(Math.random() * 10000);
+            const myPeerId = PREFIX + safeCode + '_guest_' + Math.floor(Math.random() * 1000);
             peer = new Peer(myPeerId);
 
             peer.on('open', () => {
@@ -626,8 +635,6 @@
 
         function setupConnection() {
             if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
-
-            if (!conn) return;
 
             conn.on('open', () => {
                 document.getElementById('connection-status').innerText = '接続完了';
@@ -668,8 +675,12 @@
 
         function returnToList() {
             stopRingtone();
-            cleanupPeer();
+            if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
+            if (currentCall) currentCall.close();
+            if (localStream) localStream.getTracks().forEach(t => t.stop());
+            if (peer) peer.destroy();
             
+            peer = null; conn = null; currentCall = null; localStream = null;
             document.getElementById('chat-screen').style.display = 'none';
             document.getElementById('room-list-screen').style.display = 'flex';
             renderRoomList();
@@ -727,12 +738,11 @@
 
         async function startCall() {
             try {
+                // 通話ボタンタップ時に AudioContext を確実にレジュームして初期化
+                await getAudioContext();
+
                 stopRingtone();
-                // Androidでの音声漏れ（スピーカー出力）を防ぐためエコーキャンセル等を最適化
-                localStream = await navigator.mediaDevices.getUserMedia({ 
-                    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, 
-                    video: false 
-                });
+                localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
                 const safeCode = convertToSafeId(currentRoomId);
                 const targetId = PREFIX + safeCode + (isHost ? '_guest' : '_host');
 
@@ -751,7 +761,9 @@
         }
 
         function setupCallEvents() {
-            currentCall.on('stream', (stream) => {
+            currentCall.on('stream', async (stream) => {
+                // 音声ストリーム受信時にも確実に AudioContext を有効化
+                await getAudioContext();
                 const audio = document.getElementById('remote-audio');
                 audio.srcObject = stream;
                 audio.play().catch(e => console.log('Audio play error:', e));
@@ -780,7 +792,8 @@
 
         function handleKeyPress(e) { if (e.key === 'Enter') sendText(); }
 
-        function sendText() {
+        async function sendText() {
+            await getAudioContext(); // タップや送信操作に連動
             const input = document.getElementById('chat-input');
             const text = input.value.trim();
             if (!text || !conn || !conn.open) return;
@@ -790,7 +803,8 @@
             input.value = '';
         }
 
-        function sendImage(input) {
+        async function sendImage(input) {
+            await getAudioContext();
             if (input.files.length === 0 || !conn || !conn.open) return;
             const file = input.files[0];
             const reader = new FileReader();
