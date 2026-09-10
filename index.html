@@ -742,15 +742,7 @@
                 await getAudioContext();
 
                 stopRingtone();
-                
-　　　　　　localStream = await navigator.mediaDevices.getUserMedia({
-    　　　　　　audio: {
-       　　　　　　 echoCancellation: true,   // エコーキャンセル
-       　　　　　　 noiseSuppression: true,   // ノイズ抑制
-       　　　　　　 autoGainControl: true     // 自動音量調整
-  　　　　　　  },
-    　　　　　　video: false
-　　　　　　});
+                localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
                 const safeCode = convertToSafeId(currentRoomId);
                 const targetId = PREFIX + safeCode + (isHost ? '_guest' : '_host');
 
@@ -768,29 +760,101 @@
             } catch (err) { alert('マイクエラー: ' + err.message); }
         }
 
-　　　　function setupCallEvents() {
-    　　　　currentCall.on('stream', async (stream) => {
+        function setupCallEvents() {
+            currentCall.on('stream', async (stream) => {
 
-       　　　　 // 通話音声を再生する audio 要素
-       　　　　 const audio = document.getElementById('remote-audio');
+                const audio = document.getElementById('remote-audio');
 
-       　　　　 // 相手の音声ストリームをセット
-       　　　　 audio.srcObject = stream;
+                audio.srcObject = stream;
 
-       　　　　 // 音声を確実に再生
-       　　　　 try {
-           　　　　 await audio.play();
-            　　　　console.log('相手の音声を再生しました');
-       　　　　 } catch (e) {
-           　　　　 console.log('Audio play error:', e);
-       　　　　 }
+                try {
 
-        　　　　// 通話中表示
-       　　　　 updateCallStatusUI('connected', '🎙️ 通話中');
-   　　　　 });
+                    if (typeof audio.setSinkId === 'function') {
 
-   　　　　 currentCall.on('close', hangUpCall);
-　　　　}
+                        console.log('音声出力先の指定に対応しています');
+
+                       const devices =
+                            await navigator.mediaDevices.enumerateDevices();
+
+                        const audioOutputs =
+                            devices.filter(device =>
+                                device.kind === 'audiooutput'
+                            );
+
+                        console.log(
+                            '利用可能な音声出力:',
+                            audioOutputs
+                        );
+
+                        const receiver = audioOutputs.find(device => {
+
+                            const label = (device.label || '').toLowerCase();
+
+                            return (
+                                label.includes('receiver') ||
+                                label.includes('earpiece') ||
+                                label.includes('受話') ||
+                                label.includes('receiver speaker')
+                            );
+                        });
+
+                       if (receiver) {
+
+                            console.log(
+                                '受話口を発見:',
+                                receiver.label
+                            );
+
+                            await audio.setSinkId(receiver.deviceId);
+
+                            console.log(
+                                '受話口へ音声出力を切り替えました'
+                            );
+
+                        } else {
+
+                            console.log(
+                                '受話口はブラウザから指定できません。'
+                            );
+
+                            console.log(
+                                '利用可能な出力:',
+                                audioOutputs.map(d => d.label)
+                            );
+                        }
+
+                    } else {
+
+                        console.log(
+                            'このブラウザは setSinkId に対応していません'
+                        );
+                    }
+
+                } catch (e) {
+
+                    console.log(
+                        '音声出力先の変更に失敗:',
+                        e
+                    );
+                }
+
+                try {
+
+                    await audio.play();
+
+                } catch (e) {
+
+                    console.log(
+                        'Audio play error:',
+                        e
+                    );
+                }
+
+                updateCallStatusUI('connected', '🎙️ 通話中');
+            });
+
+            currentCall.on('close', hangUpCall);
+        }
 
         function hangUpCall() {
             stopRingtone();
