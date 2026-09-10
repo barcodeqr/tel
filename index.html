@@ -761,24 +761,16 @@
         }
 
         function setupCallEvents() {
-   　　　　 currentCall.on('stream', async (stream) => {
-
-      　　　　  // 受信した通話音声をaudio要素から直接再生
-      　　　　  const audio = document.getElementById('remote-audio');
-
-      　　　　  audio.srcObject = stream;
-
-       　　　　 try {
-          　　　　  await audio.play();
-       　　　　 } catch (e) {
-           　　　　 console.log('Audio play error:', e);
-      　　　　  }
-
-       　　　　 updateCallStatusUI('connected', '🎙️ 通話中');
-  　　　　  });
-
-   　　　　 currentCall.on('close', hangUpCall);
-　　　　}
+            currentCall.on('stream', async (stream) => {
+                // 音声ストリーム受信時にも確実に AudioContext を有効化
+                await getAudioContext();
+                const audio = document.getElementById('remote-audio');
+                audio.srcObject = stream;
+                audio.play().catch(e => console.log('Audio play error:', e));
+                updateCallStatusUI('connected', '🎙️ 通話中');
+            });
+            currentCall.on('close', hangUpCall);
+        }
 
         function hangUpCall() {
             stopRingtone();
