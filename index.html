@@ -95,7 +95,7 @@
 
         .room-item {
             background: #333;
-            padding: 12px 15px;
+            padding: 10px 12px;
             border-radius: 8px;
             cursor: pointer;
             display: flex;
@@ -104,8 +104,8 @@
             border: 1px solid #444;
         }
         .room-item:active { background: #3d3d3d; }
-        .room-item-info { display: flex; flex-direction: column; gap: 4px; }
-        .room-item-name { font-weight: bold; font-size: 1rem; color: #00ffcc; }
+        .room-item-info { display: flex; flex-direction: column; gap: 3px; }
+        .room-item-name { font-weight: bold; font-size: 0.95rem; color: #00ffcc; }
         .room-item-sub { font-size: 0.75rem; color: #aaa; }
         
         .room-delete-btn {
@@ -132,6 +132,7 @@
             align-items: center;
             border-bottom: 1px solid #333;
             flex-shrink: 0;
+            gap: 8px;
         }
 
         .back-to-list-btn {
@@ -142,7 +143,18 @@
             border-radius: 6px;
             cursor: pointer;
             font-size: 0.8rem;
+            flex-shrink: 0;
         }
+
+        .header-info-box {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            flex-grow: 1;
+            overflow: hidden;
+        }
+        .header-room-name { font-weight: bold; color: #00ffcc; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .header-members { font-size: 0.75rem; color: #aaa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
         .call-bar {
             background: #2b2b2b;
@@ -205,22 +217,38 @@
             overflow-y: auto;
             display: flex;
             flex-direction: column;
-            gap: 8px;
+            gap: 10px;
             background: #222;
             -webkit-overflow-scrolling: touch;
         }
 
-        .message {
+        .message-container {
+            display: flex;
+            flex-direction: column;
             max-width: 75%;
+        }
+        .message-container.incoming { align-self: flex-start; align-items: flex-start; }
+        .message-container.outgoing { align-self: flex-end; align-items: flex-end; }
+
+        .message-name {
+            font-size: 0.75rem;
+            color: #aaa;
+            margin-bottom: 2px;
+            padding: 0 4px;
+        }
+
+        .message {
             padding: 8px 12px;
             border-radius: 14px;
             font-size: 0.95rem;
             word-break: break-all;
             line-height: 1.4;
             position: relative;
+            width: 100%;
+            box-sizing: border-box;
         }
-        .message.incoming { background: #333; color: #fff; align-self: flex-start; border-bottom-left-radius: 2px; }
-        .message.outgoing { background: linear-gradient(to bottom, #ff8c00, #e67300); color: #fff; align-self: flex-end; border-bottom-right-radius: 2px; }
+        .message.incoming { background: #333; color: #fff; border-bottom-left-radius: 2px; }
+        .message.outgoing { background: linear-gradient(to bottom, #ff8c00, #e67300); color: #fff; border-bottom-right-radius: 2px; }
 
         .delete-msg-btn {
             position: absolute;
@@ -238,7 +266,7 @@
             align-items: center;
             justify-content: center;
         }
-        .message.outgoing:hover .delete-msg-btn { display: flex; }
+        .message-container.outgoing:hover .delete-msg-btn { display: flex; }
         .message img { max-width: 100%; border-radius: 8px; display: block; margin-top: 4px; cursor: pointer; }
 
         .input-bar {
@@ -292,11 +320,12 @@
             <h2>💬 トーク一覧</h2>
             
             <div class="room-add-box">
-                <input type="text" id="new-room-id" placeholder="相手の名前 (例: 〇〇くん)">
+                <input type="text" id="my-name-input" placeholder="自分の名前">
+                <input type="text" id="new-room-id" placeholder="トーク名を入力">
                 <input type="password" id="new-room-pwd" placeholder="パスワード(必要な場合のみ)">
                 <div style="display: flex; gap: 6px;">
-                    <button class="puku-btn create-btn" style="flex:1;" onclick="openRoomCustom(true)">部屋を作る</button>
-                    <button class="puku-btn join-btn" style="flex:1;" onclick="openRoomCustom(false)">部屋に入る</button>
+                    <button class="puku-btn create-btn" style="flex:1;" onclick="openRoomCustom(true)">相手を待つ</button>
+                    <button class="puku-btn join-btn" style="flex:1;" onclick="openRoomCustom(false)">相手を探す</button>
                 </div>
             </div>
 
@@ -308,8 +337,11 @@
         <div id="chat-screen" class="screen">
             <div class="chat-header">
                 <button class="back-to-list-btn" onclick="returnToList()">◀ 戻る</button>
-                <span id="chat-room-title" style="font-weight: bold; color: #00ffcc; font-size: 0.95rem;"></span>
-                <span id="connection-status" style="font-size: 0.7rem; color: #aaa;">接続中...</span>
+                <div class="header-info-box">
+                    <div id="header-room-name" class="header-room-name">トーク名: -</div>
+                    <div id="header-members" class="header-members">自分：-&emsp;&emsp;相手：-</div>
+                </div>
+                <span id="connection-status" style="font-size: 0.75rem; color: #aaa; flex-shrink: 0;">接続中...</span>
             </div>
 
             <div id="call-bar" class="call-bar">
@@ -348,12 +380,16 @@
         let isHost = false;
         let ringtoneTimer = null;
         let searchTimer = null;
-        let globalAudioCtx = null; // iOS対応用 AudioContext 共有インスタンス[cite: 2]
+        let globalAudioCtx = null;
+        let remotePartnerName = '未接続';
 
-        const PREFIX = 'puku_chat_v7_';
-        const ROOMS_KEY = 'puku_chat_rooms_list';
+        const PREFIX = 'puku_chat_v12_';
+        const ROOMS_KEY = 'puku_chat_rooms_list_v6';
+        const MYNAME_KEY = 'puku_chat_my_name';
 
         window.onload = function() {
+            const savedMyName = localStorage.getItem(MYNAME_KEY);
+            if (savedMyName) document.getElementById('my-name-input').value = savedMyName;
             renderRoomList();
         };
 
@@ -362,7 +398,6 @@
             return 'room_' + encoded;
         }
 
-        // 確実な AudioContext 取得＆アンロック関数[cite: 2]
         async function getAudioContext() {
             if (!globalAudioCtx) {
                 const AudioContextClass = window.AudioContext || window.webkitAudioContext;
@@ -435,12 +470,19 @@
             return JSON.parse(localStorage.getItem(ROOMS_KEY)) || [];
         }
 
-        function saveRoomToList(roomId, password) {
+        function saveRoomToList(roomId, password, myName, partnerName = '未接続') {
             let rooms = getSavedRooms();
-            if (!rooms.some(r => r.id === roomId)) {
-                rooms.push({ id: roomId, pwd: password });
-                localStorage.setItem(ROOMS_KEY, JSON.stringify(rooms));
+            let existing = rooms.find(r => r.id === roomId);
+            if (existing) {
+                existing.pwd = password;
+                existing.myName = myName;
+                if (partnerName && partnerName !== '未接続') {
+                    existing.partnerName = partnerName;
+                }
+            } else {
+                rooms.push({ id: roomId, pwd: password, myName: myName, partnerName: partnerName });
             }
+            localStorage.setItem(ROOMS_KEY, JSON.stringify(rooms));
         }
 
         function renderRoomList() {
@@ -457,15 +499,18 @@
                 const item = document.createElement('div');
                 item.className = 'room-item';
                 item.onclick = () => {
-                    // ユーザーのタップ時に AudioContext をあらかじめアンロック
                     getAudioContext();
+                    document.getElementById('my-name-input').value = room.myName || '';
                     connectToRoomSmart(room.id, room.pwd);
                 };
 
+                const myN = room.myName || '未設定';
+                const partN = room.partnerName || '未接続';
+
                 item.innerHTML = `
                     <div class="room-item-info">
-                        <span class="room-item-name">💬 ${room.id}</span>
-                        <span class="room-item-sub">タップしてチャットを開く</span>
+                        <span class="room-item-name">トーク名：${room.id}</span>
+                        <span class="room-item-sub">自分：${myN}&emsp;&emsp;相手：${partN}</span>
                     </div>
                     <button class="room-delete-btn" onclick="event.stopPropagation(); deleteRoom('${room.id}')">削除</button>
                 `;
@@ -483,12 +528,15 @@
         }
 
         async function openRoomCustom(asHost) {
-            await getAudioContext(); // ユーザーのボタン操作時に確実に初期化
+            await getAudioContext();
+            const myName = document.getElementById('my-name-input').value.trim() || 'あなた';
+            localStorage.setItem(MYNAME_KEY, myName);
+
             const inputId = document.getElementById('new-room-id').value.trim();
             const inputPwd = document.getElementById('new-room-pwd').value.trim();
-            if (!inputId) { alert('部屋名（相手の名前）を入力してください'); return; }
+            if (!inputId) { alert('トーク名を入力してください'); return; }
 
-            saveRoomToList(inputId, inputPwd);
+            saveRoomToList(inputId, inputPwd, myName);
             renderRoomList();
             
             if (asHost) {
@@ -498,17 +546,36 @@
             }
         }
 
+        function updateChatHeaderInfo() {
+            const myName = document.getElementById('my-name-input').value.trim() || 'あなた';
+            document.getElementById('header-room-name').innerText = `トーク名：${currentRoomId}`;
+            document.getElementById('header-members').innerText = `自分：${myName}\u00a0\u00a0\u00a0\u00a0相手：${remotePartnerName}`;
+        }
+
+        function updateRoomPartnerNameInStorage(roomId, partnerName) {
+            let rooms = getSavedRooms();
+            let room = rooms.find(r => r.id === roomId);
+            if (room) {
+                room.partnerName = partnerName;
+                localStorage.setItem(ROOMS_KEY, JSON.stringify(rooms));
+            }
+        }
+
         function connectToRoomSmart(roomId, password) {
             currentRoomId = roomId;
             roomPassword = password;
             isHost = false;
+            
+            let rooms = getSavedRooms();
+            let room = rooms.find(r => r.id === roomId);
+            remotePartnerName = (room && room.partnerName) ? room.partnerName : '未接続';
 
             if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
 
             document.getElementById('room-list-screen').style.display = 'none';
             document.getElementById('chat-screen').style.display = 'flex';
-            document.getElementById('chat-room-title').innerText = currentRoomId;
-            document.getElementById('connection-status').innerText = '接続中...';
+            updateChatHeaderInfo();
+            setConnectionStatus('接続中...', '#aaa');
             
             loadHistory();
             if (peer) { peer.destroy(); }
@@ -519,7 +586,7 @@
 
             peer.on('open', () => {
                 const targetId = PREFIX + safeCode + '_host';
-                document.getElementById('connection-status').innerText = '相手を探しています...';
+                setConnectionStatus('相手を探しています...', '#ffaa00');
                 conn = peer.connect(targetId);
                 setupConnection();
 
@@ -544,16 +611,12 @@
                 document.getElementById('start-call-btn').innerText = '📞 応答';
                 startRingtone();
             });
-
-            peer.on('error', (err) => {
-                if (!isHost && err.type === 'peer-unavailable') {}
-            });
         }
 
         function upgradeToHost() {
             if (peer) { peer.destroy(); }
             isHost = true;
-            document.getElementById('connection-status').innerText = '待機中... (ホストになりました)';
+            setConnectionStatus('相手を待っています', '#ffaa00');
 
             const safeCode = convertToSafeId(currentRoomId);
             const myPeerId = PREFIX + safeCode + '_host';
@@ -576,11 +639,15 @@
             currentRoomId = roomId;
             roomPassword = password;
             isHost = true;
+            
+            let rooms = getSavedRooms();
+            let room = rooms.find(r => r.id === roomId);
+            remotePartnerName = (room && room.partnerName) ? room.partnerName : '未接続';
 
             document.getElementById('room-list-screen').style.display = 'none';
             document.getElementById('chat-screen').style.display = 'flex';
-            document.getElementById('chat-room-title').innerText = currentRoomId;
-            document.getElementById('connection-status').innerText = '待機中... (相手の接続待ち)';
+            updateChatHeaderInfo();
+            setConnectionStatus('相手を待っています', '#ffaa00');
             
             loadHistory();
             if (peer) { peer.destroy(); }
@@ -606,11 +673,15 @@
             currentRoomId = roomId;
             roomPassword = password;
             isHost = false;
+            
+            let rooms = getSavedRooms();
+            let room = rooms.find(r => r.id === roomId);
+            remotePartnerName = (room && room.partnerName) ? room.partnerName : '未接続';
 
             document.getElementById('room-list-screen').style.display = 'none';
             document.getElementById('chat-screen').style.display = 'flex';
-            document.getElementById('chat-room-title').innerText = currentRoomId;
-            document.getElementById('connection-status').innerText = '接続中...';
+            updateChatHeaderInfo();
+            setConnectionStatus('接続中...', '#aaa');
             
             loadHistory();
             if (peer) { peer.destroy(); }
@@ -633,42 +704,61 @@
             });
         }
 
+        function setConnectionStatus(text, color, isBold = false) {
+            const el = document.getElementById('connection-status');
+            el.innerText = text;
+            el.style.color = color;
+            el.style.fontWeight = isBold ? 'bold' : 'normal';
+            el.style.fontSize = isBold ? '0.85rem' : '0.75rem';
+        }
+
         function setupConnection() {
             if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
 
             conn.on('open', () => {
-                document.getElementById('connection-status').innerText = '接続完了';
-                if (!isHost) {
-                    conn.send({ type: 'auth_check', password: roomPassword || '' });
-                }
+                setConnectionStatus('接続中', '#00ffcc', true);
+                const myName = document.getElementById('my-name-input').value.trim() || 'あなた';
+                conn.send({ type: 'handshake', name: myName, password: roomPassword || '' });
             });
 
             conn.on('close', () => {
-                document.getElementById('connection-status').innerText = '切断されました';
+                setConnectionStatus('切断されました', '#ff4d4d', true);
             });
 
             conn.on('data', (data) => {
-                if (data.type === 'auth_check') {
+                if (data.type === 'handshake') {
                     if (data.password === roomPassword) {
-                        conn.send({ type: 'auth_result', success: true });
+                        remotePartnerName = data.name || '未接続';
+                        updateChatHeaderInfo();
+                        updateRoomPartnerNameInStorage(currentRoomId, remotePartnerName);
+                        conn.send({ type: 'handshake_result', success: true, name: document.getElementById('my-name-input').value.trim() || 'あなた' });
                     } else {
-                        conn.send({ type: 'auth_result', success: false });
+                        conn.send({ type: 'handshake_result', success: false });
                         alert('パスワードが違います');
                         conn.close();
                     }
                     return;
                 }
-                if (data.type === 'auth_result') {
-                    if (!data.success) { alert('パスワードが違います！'); return; }
+                if (data.type === 'handshake_result') {
+                    if (!data.success) { 
+                        alert('パスワードが違います！'); 
+                        return; 
+                    }
+                    if (data.name) {
+                        remotePartnerName = data.name;
+                        updateChatHeaderInfo();
+                        updateRoomPartnerNameInStorage(currentRoomId, remotePartnerName);
+                    }
+                    return;
                 }
 
                 if (data.type === 'chat') {
                     playReceiveSound();
-                    saveAndAppendMessage(data.text, 'incoming', 'text');
+                    saveAndAppendMessage(data.text, 'incoming', 'text', remotePartnerName);
                 } else if (data.type === 'image') {
                     playReceiveSound();
                     const blob = new Blob([data.buffer], { type: data.mimeType });
-                    saveAndAppendMessage(URL.createObjectURL(blob), 'incoming', 'image');
+                    saveAndAppendMessage(URL.createObjectURL(blob), 'incoming', 'image', remotePartnerName);
                 }
             });
         }
@@ -692,20 +782,29 @@
             const messagesDiv = document.getElementById('messages');
             messagesDiv.innerHTML = '';
             let history = JSON.parse(localStorage.getItem(getStorageKey())) || [];
-            history.forEach(item => renderMessageElement(item.content, item.className, item.type, false));
+            history.forEach(item => renderMessageElement(item.content, item.className, item.type, item.senderName, false));
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
 
-        function saveAndAppendMessage(content, className, type) {
+        function saveAndAppendMessage(content, className, type, senderName) {
             let history = JSON.parse(localStorage.getItem(getStorageKey())) || [];
             if (history.length >= 50) history.shift();
-            history.push({ content, className, type });
+            history.push({ content, className, type, senderName });
             localStorage.setItem(getStorageKey(), JSON.stringify(history));
-            renderMessageElement(content, className, type, true);
+            renderMessageElement(content, className, type, senderName, true);
         }
 
-        function renderMessageElement(content, className, type, scrollToBottom = false) {
+        function renderMessageElement(content, className, type, senderName, scrollToBottom = false) {
             const messagesDiv = document.getElementById('messages');
+            
+            const containerEl = document.createElement('div');
+            containerEl.className = `message-container ${className}`;
+
+            const nameEl = document.createElement('div');
+            nameEl.className = 'message-name';
+            nameEl.innerText = senderName;
+            containerEl.appendChild(nameEl);
+
             const msgEl = document.createElement('div');
             msgEl.className = `message ${className}`;
             
@@ -727,20 +826,19 @@
                     let history = JSON.parse(localStorage.getItem(getStorageKey())) || [];
                     const index = history.findIndex(item => item.content === content && item.className === 'outgoing');
                     if (index !== -1) { history.splice(index, 1); localStorage.setItem(getStorageKey(), JSON.stringify(history)); }
-                    msgEl.remove();
+                    containerEl.remove();
                 };
                 msgEl.appendChild(deleteBtn);
             }
 
-            messagesDiv.appendChild(msgEl);
+            containerEl.appendChild(msgEl);
+            messagesDiv.appendChild(containerEl);
             if (scrollToBottom) messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
 
         async function startCall() {
             try {
-                // 通話ボタンタップ時に AudioContext を確実にレジュームして初期化
                 await getAudioContext();
-
                 stopRingtone();
                 localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
                 const safeCode = convertToSafeId(currentRoomId);
@@ -762,7 +860,6 @@
 
         function setupCallEvents() {
             currentCall.on('stream', async (stream) => {
-                // 音声ストリーム受信時にも確実に AudioContext を有効化
                 await getAudioContext();
                 const audio = document.getElementById('remote-audio');
                 audio.srcObject = stream;
@@ -793,18 +890,21 @@
         function handleKeyPress(e) { if (e.key === 'Enter') sendText(); }
 
         async function sendText() {
-            await getAudioContext(); // タップや送信操作に連動
+            await getAudioContext();
             const input = document.getElementById('chat-input');
             const text = input.value.trim();
+            const myName = document.getElementById('my-name-input').value.trim() || 'あなた';
             if (!text || !conn || !conn.open) return;
+            
             conn.send({ type: 'chat', text: text });
             playSendSound();
-            saveAndAppendMessage(text, 'outgoing', 'text');
+            saveAndAppendMessage(text, 'outgoing', 'text', myName);
             input.value = '';
         }
 
         async function sendImage(input) {
             await getAudioContext();
+            const myName = document.getElementById('my-name-input').value.trim() || 'あなた';
             if (input.files.length === 0 || !conn || !conn.open) return;
             const file = input.files[0];
             const reader = new FileReader();
@@ -812,7 +912,7 @@
                 const buffer = e.target.result;
                 conn.send({ type: 'image', buffer: buffer, mimeType: file.type });
                 playSendSound();
-                saveAndAppendMessage(URL.createObjectURL(new Blob([buffer], { type: file.type })), 'outgoing', 'image');
+                saveAndAppendMessage(URL.createObjectURL(new Blob([buffer], { type: file.type })), 'outgoing', 'image', myName);
             };
             reader.readAsArrayBuffer(file);
             input.value = '';
