@@ -760,70 +760,18 @@
             } catch (err) { alert('マイクエラー: ' + err.message); }
         }
 
-function setupCallEvents() {
-    currentCall.on('stream', async (stream) => {
-
-        //========================================
-        // 相手の音声を受信
-        //========================================
-
-        const audio = document.getElementById('remote-audio');
-
-        audio.srcObject = stream;
-
-        //========================================
-        // Androidの音声出力デバイスを確認
-        //========================================
-
-        try {
-
-            const devices =
-                await navigator.mediaDevices.enumerateDevices();
-
-            const audioOutputs =
-                devices.filter(device =>
-                    device.kind === 'audiooutput'
-                );
-
-            console.log('===== 音声出力デバイス =====');
-
-            audioOutputs.forEach((device, index) => {
-
-                console.log(
-                    index,
-                    'label =', device.label,
-                    'deviceId =', device.deviceId
-                );
-
+        function setupCallEvents() {
+            currentCall.on('stream', async (stream) => {
+                // 音声ストリーム受信時にも確実に AudioContext を有効化
+                await getAudioContext();
+                const audio = document.getElementById('remote-audio');
+                audio.srcObject = stream;
+                audio.play().catch(e => console.log('Audio play error:', e));
+                updateCallStatusUI('connected', '🎙️ 通話中');
             });
-
-            console.log(
-                '音声出力デバイス数 =',
-                audioOutputs.length
-            );
-
-        } catch (e) {
-
-            console.log(
-                '音声出力デバイス取得エラー:',
-                e
-            );
-
+            currentCall.on('close', hangUpCall);
         }
 
-        //========================================
-        // 相手の音声を再生
-        //========================================
-
-        audio.play().catch(e =>
-            console.log('Audio play error:', e)
-        );
-
-        updateCallStatusUI('connected', '🎙️ 通話中');
-    });
-
-    currentCall.on('close', hangUpCall);
-}
         function hangUpCall() {
             stopRingtone();
             if (currentCall) { currentCall.close(); currentCall = null; }
