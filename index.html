@@ -760,102 +760,70 @@
             } catch (err) { alert('マイクエラー: ' + err.message); }
         }
 
-        function setupCallEvents() {
-            currentCall.on('stream', async (stream) => {
+function setupCallEvents() {
+    currentCall.on('stream', async (stream) => {
 
-                const audio = document.getElementById('remote-audio');
+        //========================================
+        // 相手の音声を受信
+        //========================================
 
-                audio.srcObject = stream;
+        const audio = document.getElementById('remote-audio');
 
-                try {
+        audio.srcObject = stream;
 
-                    if (typeof audio.setSinkId === 'function') {
+        //========================================
+        // Androidの音声出力デバイスを確認
+        //========================================
 
-                        console.log('音声出力先の指定に対応しています');
+        try {
 
-                       const devices =
-                            await navigator.mediaDevices.enumerateDevices();
+            const devices =
+                await navigator.mediaDevices.enumerateDevices();
 
-                        const audioOutputs =
-                            devices.filter(device =>
-                                device.kind === 'audiooutput'
-                            );
+            const audioOutputs =
+                devices.filter(device =>
+                    device.kind === 'audiooutput'
+                );
 
-                        console.log(
-                            '利用可能な音声出力:',
-                            audioOutputs
-                        );
+            console.log('===== 音声出力デバイス =====');
 
-                        const receiver = audioOutputs.find(device => {
+            audioOutputs.forEach((device, index) => {
 
-                            const label = (device.label || '').toLowerCase();
+                console.log(
+                    index,
+                    'label =', device.label,
+                    'deviceId =', device.deviceId
+                );
 
-                            return (
-                                label.includes('receiver') ||
-                                label.includes('earpiece') ||
-                                label.includes('受話') ||
-                                label.includes('receiver speaker')
-                            );
-                        });
-
-                       if (receiver) {
-
-                            console.log(
-                                '受話口を発見:',
-                                receiver.label
-                            );
-
-                            await audio.setSinkId(receiver.deviceId);
-
-                            console.log(
-                                '受話口へ音声出力を切り替えました'
-                            );
-
-                        } else {
-
-                            console.log(
-                                '受話口はブラウザから指定できません。'
-                            );
-
-                            console.log(
-                                '利用可能な出力:',
-                                audioOutputs.map(d => d.label)
-                            );
-                        }
-
-                    } else {
-
-                        console.log(
-                            'このブラウザは setSinkId に対応していません'
-                        );
-                    }
-
-                } catch (e) {
-
-                    console.log(
-                        '音声出力先の変更に失敗:',
-                        e
-                    );
-                }
-
-                try {
-
-                    await audio.play();
-
-                } catch (e) {
-
-                    console.log(
-                        'Audio play error:',
-                        e
-                    );
-                }
-
-                updateCallStatusUI('connected', '🎙️ 通話中');
             });
 
-            currentCall.on('close', hangUpCall);
+            console.log(
+                '音声出力デバイス数 =',
+                audioOutputs.length
+            );
+
+        } catch (e) {
+
+            console.log(
+                '音声出力デバイス取得エラー:',
+                e
+            );
+
         }
 
+        //========================================
+        // 相手の音声を再生
+        //========================================
+
+        audio.play().catch(e =>
+            console.log('Audio play error:', e)
+        );
+
+        updateCallStatusUI('connected', '🎙️ 通話中');
+    });
+
+    currentCall.on('close', hangUpCall);
+}
         function hangUpCall() {
             stopRingtone();
             if (currentCall) { currentCall.close(); currentCall = null; }
