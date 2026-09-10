@@ -742,7 +742,15 @@
                 await getAudioContext();
 
                 stopRingtone();
-                localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                
+　　　　　　localStream = await navigator.mediaDevices.getUserMedia({
+    　　　　　　audio: {
+       　　　　　　 echoCancellation: true,   // エコーキャンセル
+       　　　　　　 noiseSuppression: true,   // ノイズ抑制
+       　　　　　　 autoGainControl: true     // 自動音量調整
+  　　　　　　  },
+    　　　　　　video: false
+　　　　　　});
                 const safeCode = convertToSafeId(currentRoomId);
                 const targetId = PREFIX + safeCode + (isHost ? '_guest' : '_host');
 
