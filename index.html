@@ -760,17 +760,29 @@
             } catch (err) { alert('マイクエラー: ' + err.message); }
         }
 
-        function setupCallEvents() {
-            currentCall.on('stream', async (stream) => {
-                // 音声ストリーム受信時にも確実に AudioContext を有効化
-                await getAudioContext();
-                const audio = document.getElementById('remote-audio');
-                audio.srcObject = stream;
-                audio.play().catch(e => console.log('Audio play error:', e));
-                updateCallStatusUI('connected', '🎙️ 通話中');
-            });
-            currentCall.on('close', hangUpCall);
-        }
+　　　　function setupCallEvents() {
+    　　　　currentCall.on('stream', async (stream) => {
+
+       　　　　 // 通話音声を再生する audio 要素
+       　　　　 const audio = document.getElementById('remote-audio');
+
+       　　　　 // 相手の音声ストリームをセット
+       　　　　 audio.srcObject = stream;
+
+       　　　　 // 音声を確実に再生
+       　　　　 try {
+           　　　　 await audio.play();
+            　　　　console.log('相手の音声を再生しました');
+       　　　　 } catch (e) {
+           　　　　 console.log('Audio play error:', e);
+       　　　　 }
+
+        　　　　// 通話中表示
+       　　　　 updateCallStatusUI('connected', '🎙️ 通話中');
+   　　　　 });
+
+   　　　　 currentCall.on('close', hangUpCall);
+　　　　}
 
         function hangUpCall() {
             stopRingtone();
