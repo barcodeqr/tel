@@ -94,25 +94,6 @@
             margin-top: 4px;
         }
 
-        .invite-section {
-            background: #252525;
-            padding: 8px;
-            border-radius: 6px;
-            border: 1px dashed #777;
-            display: none;
-            flex-direction: column;
-            align-items: center;
-            gap: 6px;
-            margin-top: 4px;
-        }
-        .invite-section img {
-            width: 120px;
-            height: 120px;
-            background: #fff;
-            padding: 4px;
-            border-radius: 4px;
-        }
-
         .room-list {
             flex-grow: 1;
             overflow-y: auto;
@@ -184,6 +165,42 @@
         }
         .header-room-name { font-weight: bold; color: #00ffcc; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .header-members { font-size: 0.75rem; color: #aaa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        /* チャット画面内に表示する招待パネル */
+        .chat-invite-banner {
+            background: #2a2a2a;
+            border-bottom: 2px solid #555;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+            position: relative;
+            flex-shrink: 0;
+        }
+        .chat-invite-banner img {
+            width: 100px;
+            height: 100px;
+            background: #fff;
+            padding: 3px;
+            border-radius: 4px;
+        }
+        .close-banner-btn {
+            position: absolute;
+            top: 6px;
+            right: 6px;
+            background: #555;
+            color: #fff;
+            border: none;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            font-size: 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
 
         .call-bar {
             background: #2b2b2b;
@@ -359,13 +376,6 @@
                 </div>
 
                 <button id="big-start-btn" class="puku-btn big-start-btn" onclick="handleInviteStartAction()">🚀 トークを始める</button>
-                
-                <div id="invite-section" class="invite-section">
-                    <div id="wait-status-label" style="font-size: 0.8rem; color: #ffaa00; font-weight: bold;">接続ステータス：待機中...</div>
-                    <input type="text" id="invite-url-input" readonly style="font-size: 0.75rem; text-align: center; background: #222;" onclick="this.select()">
-                    <button class="puku-btn copy-btn" style="width: 100%; padding: 6px; font-size: 0.8rem;" onclick="copyInviteUrl()">📋 招待URLをコピー</button>
-                    <img id="invite-qrcode" src="" alt="QRコード">
-                </div>
             </div>
 
             <div style="font-size: 0.85rem; color: #aaa; margin-top: 5px;">登録済みのトークルーム (タップして入力欄に反映):</div>
@@ -381,6 +391,17 @@
                     <div id="header-members" class="header-members">自分：-&emsp;&emsp;相手：-</div>
                 </div>
                 <span id="connection-status" style="font-size: 0.75rem; color: #aaa; flex-shrink: 0;">接続中...</span>
+            </div>
+
+            <!-- チャット画面内に表示する招待＆QRコードエリア（接続後に自動で消える、または×で消せる） -->
+            <div id="chat-invite-banner" class="chat-invite-banner" style="display: none;">
+                <button class="close-banner-btn" onclick="hideInviteBanner()" title="閉じる">×</button>
+                <div style="font-size: 0.8rem; color: #ffaa00; font-weight: bold;">📢 相手を待っています（この画面をそのままお伝えください）</div>
+                <input type="text" id="chat-invite-url-input" readonly style="font-size: 0.75rem; text-align: center; background: #222;" onclick="this.select()">
+                <div style="display: flex; gap: 6px; width: 100%;">
+                    <button class="puku-btn copy-btn" style="flex: 1; padding: 6px; font-size: 0.8rem;" onclick="copyChatInviteUrl()">📋 招待URLをコピー</button>
+                </div>
+                <img id="chat-invite-qrcode" src="" alt="QRコード">
             </div>
 
             <div id="call-bar" class="call-bar">
@@ -421,7 +442,7 @@
         let globalAudioCtx = null;
         let remotePartnerName = '未接続';
 
-        const PREFIX = 'puku_chat_v20_';
+        const PREFIX = 'puku_chat_v21_';
         const ROOMS_KEY = 'puku_chat_rooms_list_v12';
         const MYNAME_KEY = 'puku_chat_my_name';
 
@@ -438,8 +459,6 @@
                 
                 document.getElementById('normal-buttons').style.display = 'none';
                 document.getElementById('big-start-btn').style.display = 'block';
-                
-                showInviteSection(autoRoom, autoPwd, '接続ステータス：待機中');
             }
 
             renderRoomList();
@@ -557,7 +576,6 @@
                     
                     document.getElementById('normal-buttons').style.display = 'flex';
                     document.getElementById('big-start-btn').style.display = 'none';
-                    showInviteSection(room.id, room.pwd, '接続ステータス：待機中');
                 };
 
                 const myN = room.myName || '未設定';
@@ -583,24 +601,31 @@
             }
         }
 
-        function showInviteSection(roomId, password, statusText = '接続ステータス：待機中') {
+        function setupChatInviteBanner(roomId, password) {
             const baseUrl = window.location.origin + window.location.pathname;
             let inviteUrl = `${baseUrl}?room=${encodeURIComponent(roomId)}`;
             if (password) {
                 inviteUrl += `&pwd=${encodeURIComponent(password)}`;
             }
 
-            document.getElementById('invite-url-input').value = inviteUrl;
-            document.getElementById('wait-status-label').innerText = statusText;
-            
+            document.getElementById('chat-invite-url-input').value = inviteUrl;
             const qrApi = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(inviteUrl)}`;
-            document.getElementById('invite-qrcode').src = qrApi;
-
-            document.getElementById('invite-section').style.display = 'flex';
+            document.getElementById('chat-invite-qrcode').src = qrApi;
+            
+            // ホストとして待機している場合のみバナーを表示
+            if (isHost) {
+                document.getElementById('chat-invite-banner').style.display = 'flex';
+            } else {
+                document.getElementById('chat-invite-banner').style.display = 'none';
+            }
         }
 
-        function copyInviteUrl() {
-            const input = document.getElementById('invite-url-input');
+        function hideInviteBanner() {
+            document.getElementById('chat-invite-banner').style.display = 'none';
+        }
+
+        function copyChatInviteUrl() {
+            const input = document.getElementById('chat-invite-url-input');
             input.select();
             input.setSelectionRange(0, 99999);
             navigator.clipboard.writeText(input.value).then(() => {
@@ -623,7 +648,6 @@
             renderRoomList();
             
             if (asHost) {
-                showInviteSection(inputId, inputPwd, '接続ステータス：待機中');
                 connectToRoomAsHost(inputId, inputPwd);
             } else {
                 connectToRoomAsGuest(inputId, inputPwd);
@@ -674,6 +698,7 @@
             updateChatHeaderInfo();
             setConnectionStatus('相手を待っています', '#ffaa00');
             
+            setupChatInviteBanner(roomId, password);
             loadHistory();
             if (peer) { peer.destroy(); }
 
@@ -709,6 +734,7 @@
             updateChatHeaderInfo();
             setConnectionStatus('接続中...', '#aaa');
             
+            setupChatInviteBanner(roomId, password);
             loadHistory();
             if (peer) { peer.destroy(); }
 
@@ -719,7 +745,6 @@
             peer.on('open', () => {
                 attemptConnectionToHost(safeCode);
                 
-                // 相手がまだ準備できていない場合に備えて、3秒ごとに自動で接続リトライを行う
                 if (retryTimer) clearInterval(retryTimer);
                 retryTimer = setInterval(() => {
                     if (!conn || !conn.open) {
@@ -762,6 +787,9 @@
 
         function setupConnection() {
             if (retryTimer) { clearInterval(retryTimer); retryTimer = null; }
+
+            // 接続成功したら、ホスト側の画面に表示されていた招待バナーを自動で消す
+            hideInviteBanner();
 
             setConnectionStatus('接続中', '#00ffcc', true);
             const myName = document.getElementById('my-name-input').value.trim() || 'あなた';
@@ -826,7 +854,6 @@
                 document.getElementById('normal-buttons').style.display = 'flex';
                 document.getElementById('new-room-id').value = '';
                 document.getElementById('new-room-pwd').value = '';
-                document.getElementById('invite-section').style.display = 'none';
             }
             renderRoomList();
         }
@@ -932,14 +959,6 @@
             document.getElementById('start-call-btn').innerText = '📞 通話';
             document.getElementById('start-call-btn').style.display = 'inline-block';
             document.getElementById('hangup-btn').style.display = 'none';
-        }
-
-        function updateCallStatusUI(state, mainText, subText = '') {
-            const statusEl = document.getElementById('call-status');
-            const barEl = document.getElementById('call-bar');
-            statusEl.innerHTML = `<div class="status-main">${mainText}</div>` + (subText ? `<div class="status-sub">${subText}</div>` : '');
-            statusEl.className = 'status-' + state;
-            barEl.style.background = state === 'connected' ? '#1a332a' : (state === 'calling' ? '#362a15' : (state === 'incoming' ? '#421a1a' : '#2b2b2b'));
         }
 
         function handleKeyPress(e) { if (e.key === 'Enter') sendText(); }
