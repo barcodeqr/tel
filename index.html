@@ -421,7 +421,7 @@
         let globalAudioCtx = null;
         let remotePartnerName = '未接続';
 
-        const PREFIX = 'puku_chat_v18_';
+        const PREFIX = 'puku_chat_v19_';
         const ROOMS_KEY = 'puku_chat_rooms_list_v12';
         const MYNAME_KEY = 'puku_chat_my_name';
 
@@ -642,8 +642,8 @@
             saveRoomToList(inputId, inputPwd, myName);
             renderRoomList();
 
-            // URLから入った側はスマート接続（見つからなければ自動でホストになる）を使ってすぐにつながりやすくする
-            connectToRoomSmart(inputId, inputPwd);
+            // 修正：URLから入った側（ゲスト）として、ホストに接続しにいく
+            connectToRoomAsGuest(inputId, inputPwd);
         }
 
         function updateChatHeaderInfo() {
@@ -659,80 +659,6 @@
                 room.partnerName = partnerName;
                 localStorage.setItem(ROOMS_KEY, JSON.stringify(rooms));
             }
-        }
-
-        function connectToRoomSmart(roomId, password) {
-            currentRoomId = roomId;
-            roomPassword = password;
-            isHost = false;
-            
-            let rooms = getSavedRooms();
-            let room = rooms.find(r => r.id === roomId);
-            remotePartnerName = (room && room.partnerName) ? room.partnerName : '未接続';
-
-            if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
-
-            document.getElementById('room-list-screen').style.display = 'none';
-            document.getElementById('chat-screen').style.display = 'flex';
-            updateChatHeaderInfo();
-            setConnectionStatus('接続中...', '#aaa');
-            
-            loadHistory();
-            if (peer) { peer.destroy(); }
-
-            const safeCode = convertToSafeId(currentRoomId);
-            const myPeerId = PREFIX + safeCode + '_guest_' + Math.floor(Math.random() * 1000);
-            peer = new Peer(myPeerId);
-
-            peer.on('open', () => {
-                const targetId = PREFIX + safeCode + '_host';
-                setConnectionStatus('相手を探しています...', '#ffaa00');
-                conn = peer.connect(targetId);
-                setupConnection();
-
-                searchTimer = setTimeout(() => {
-                    if (!conn || !conn.open) {
-                        if (document.getElementById('connection-status').innerText.includes('相手を探しています')) {
-                            upgradeToHost();
-                        }
-                    }
-                }, 5000);
-            });
-
-            peer.on('connection', (connection) => {
-                if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
-                conn = connection;
-                setupConnection();
-            });
-
-            peer.on('call', (call) => {
-                currentCall = call;
-                updateCallStatusUI('incoming', '🚨 着信中...', '「通話」ボタンで応答');
-                document.getElementById('start-call-btn').innerText = '📞 応答';
-                startRingtone();
-            });
-        }
-
-        function upgradeToHost() {
-            if (peer) { peer.destroy(); }
-            isHost = true;
-            setConnectionStatus('相手を待っています', '#ffaa00');
-
-            const safeCode = convertToSafeId(currentRoomId);
-            const myPeerId = PREFIX + safeCode + '_host';
-            peer = new Peer(myPeerId);
-
-            peer.on('connection', (connection) => {
-                conn = connection;
-                setupConnection();
-            });
-
-            peer.on('call', (call) => {
-                currentCall = call;
-                updateCallStatusUI('incoming', '🚨 着信中...', '「通話」ボタンで応答');
-                document.getElementById('start-call-btn').innerText = '📞 応答';
-                startRingtone();
-            });
         }
 
         function connectToRoomAsHost(roomId, password) {
