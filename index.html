@@ -85,7 +85,6 @@
         .join-btn { background: linear-gradient(to bottom, #00c875, #009658); }
         .copy-btn { background: linear-gradient(to bottom, #9900ff, #6600cc); }
         
-        /* 招待された側用の大きな「トークを始める」ボタン */
         .big-start-btn {
             background: linear-gradient(to bottom, #ff8c00, #cc7000);
             font-size: 1.1rem;
@@ -354,16 +353,13 @@
                 <input type="text" id="new-room-id" placeholder="トーク名を入力">
                 <input type="password" id="new-room-pwd" placeholder="パスワード(必要な場合のみ)">
                 
-                <!-- 通常のボタン群 -->
                 <div id="normal-buttons" style="display: flex; gap: 6px;">
                     <button class="puku-btn create-btn" style="flex:1;" onclick="handleWaitAction()">相手を待つ</button>
                     <button class="puku-btn join-btn" style="flex:1;" onclick="handleSearchAction()">相手を探す</button>
                 </div>
 
-                <!-- 招待URLから開いたときにだけ表示される大きな参加ボタン -->
                 <button id="big-start-btn" class="puku-btn big-start-btn" onclick="handleInviteStartAction()">🚀 トークを始める</button>
                 
-                <!-- 招待URL・QRコード表示エリア -->
                 <div id="invite-section" class="invite-section">
                     <div id="wait-status-label" style="font-size: 0.8rem; color: #ffaa00; font-weight: bold;">接続ステータス：待機中...</div>
                     <input type="text" id="invite-url-input" readonly style="font-size: 0.75rem; text-align: center; background: #222;" onclick="this.select()">
@@ -421,19 +417,18 @@
         let roomPassword = '';
         let isHost = false;
         let ringtoneTimer = null;
-        let searchTimer = null;
+        let searchRetryTimer = null;
         let globalAudioCtx = null;
         let remotePartnerName = '未接続';
 
-        const PREFIX = 'puku_chat_v16_';
-        const ROOMS_KEY = 'puku_chat_rooms_list_v10';
+        const PREFIX = 'puku_chat_v17_';
+        const ROOMS_KEY = 'puku_chat_rooms_list_v11';
         const MYNAME_KEY = 'puku_chat_my_name';
 
         window.onload = function() {
             const savedMyName = localStorage.getItem(MYNAME_KEY);
             if (savedMyName) document.getElementById('my-name-input').value = savedMyName;
 
-            // URLパラメータ（招待URL）から開かれた場合の処理
             const urlParams = new URLSearchParams(window.location.search);
             const autoRoom = urlParams.get('room');
             const autoPwd = urlParams.get('pwd') || '';
@@ -441,11 +436,9 @@
                 document.getElementById('new-room-id').value = autoRoom;
                 document.getElementById('new-room-pwd').value = autoPwd;
                 
-                // 通常のボタンを隠し、大きな「トークを始める」ボタンを表示する
                 document.getElementById('normal-buttons').style.display = 'none';
                 document.getElementById('big-start-btn').style.display = 'block';
                 
-                // ステータスを「探索中」に設定
                 showInviteSection(autoRoom, autoPwd, '接続ステータス：探索中...');
             }
 
@@ -562,7 +555,6 @@
                     document.getElementById('new-room-id').value = room.id || '';
                     document.getElementById('new-room-pwd').value = room.pwd || '';
                     
-                    // 通常画面での選択時は通常のボタンを表示
                     document.getElementById('normal-buttons').style.display = 'flex';
                     document.getElementById('big-start-btn').style.display = 'none';
                     showInviteSection(room.id, room.pwd, '接続ステータス：待機中');
@@ -618,7 +610,6 @@
             });
         }
 
-        // 「相手を待つ」ボタン
         async function handleWaitAction() {
             await getAudioContext();
             const myName = document.getElementById('my-name-input').value.trim() || 'あなた';
@@ -634,7 +625,6 @@
             showInviteSection(inputId, inputPwd, '接続ステータス：待機中');
         }
 
-        // 「相手を探す」ボタン
         async function handleSearchAction() {
             await getAudioContext();
             const myName = document.getElementById('my-name-input').value.trim() || 'あなた';
@@ -650,7 +640,6 @@
             openRoomCustom(false);
         }
 
-        // 招待URLから入った人が「🚀 トークを始める」ボタンを押したときの処理
         async function handleInviteStartAction() {
             await getAudioContext();
             const myName = document.getElementById('my-name-input').value.trim() || 'あなた';
@@ -663,7 +652,6 @@
             saveRoomToList(inputId, inputPwd, myName);
             renderRoomList();
 
-            // 確実にゲストとして探索＆チャットルームへ移行する
             openRoomCustom(false);
         }
 
@@ -710,22 +698,14 @@
 
             peer.on('open', () => {
                 if (!asHost) {
-                    const targetId = PREFIX + safeCode + '_host';
-                    conn = peer.connect(targetId);
-                    setupConnection();
-
-                    searchTimer = setTimeout(() => {
-                        if (!conn || !conn.open) {
-                            upgradeToHost();
-                        }
-                    }, 4000);
+                    attemptConnectToHost(safeCode);
                 } else {
                     setConnectionStatus('相手を待っています', '#ffaa00');
                 }
             });
 
             peer.on('connection', (connection) => {
-                if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
+                if (searchRetryTimer) { clearInterval(searchRetryTimer); searchRetryTimer = null; }
                 conn = connection;
                 setupConnection();
             });
@@ -738,26 +718,30 @@
             });
         }
 
-        function upgradeToHost() {
-            if (peer) { peer.destroy(); }
-            isHost = true;
-            setConnectionStatus('相手を待っています', '#ffaa00');
+        // ゲスト側がホストが見つかるまで何度でも接続をリトライする関数（勝手にホストに変身しない）
+        function attemptConnectToHost(safeCode) {
+            if (isHost) return; // すでにホストになっていれば何もしない
 
-            const safeCode = convertToSafeId(currentRoomId);
-            const myPeerId = PREFIX + safeCode + '_host';
-            peer = new Peer(myPeerId);
+            const targetId = PREFIX + safeCode + '_host';
+            conn = peer.connect(targetId);
+            setupConnection();
 
-            peer.on('connection', (connection) => {
-                conn = connection;
-                setupConnection();
-            });
-
-            peer.on('call', (call) => {
-                currentCall = call;
-                updateCallStatusUI('incoming', '🚨 着信中...', '「通話」ボタンで応答');
-                document.getElementById('start-call-btn').innerText = '📞 応答';
-                startRingtone();
-            });
+            // もし2秒以内に接続が確立しなければ、一度閉じてもう一度コネクトし直す（リトライ）
+            if (searchRetryTimer) clearInterval(searchRetryTimer);
+            searchRetryTimer = setInterval(() => {
+                if (isHost) {
+                    clearInterval(searchRetryTimer);
+                    return;
+                }
+                if (conn && conn.open) {
+                    clearInterval(searchRetryTimer);
+                    searchRetryTimer = null;
+                } else {
+                    setConnectionStatus('探索中... (再試行中)', '#ffaa00');
+                    conn = peer.connect(targetId);
+                    setupConnection();
+                }
+            }, 2500);
         }
 
         function setConnectionStatus(text, color, isBold = false) {
@@ -769,9 +753,10 @@
         }
 
         function setupConnection() {
-            if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
+            if (!conn) return;
 
             conn.on('open', () => {
+                if (searchRetryTimer) { clearInterval(searchRetryTimer); searchRetryTimer = null; }
                 setConnectionStatus('接続中', '#00ffcc', true);
                 const myName = document.getElementById('my-name-input').value.trim() || 'あなた';
                 conn.send({ type: 'handshake', name: myName, password: roomPassword || '' });
@@ -821,7 +806,7 @@
 
         function returnToList() {
             stopRingtone();
-            if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
+            if (searchRetryTimer) { clearInterval(searchRetryTimer); searchRetryTimer = null; }
             if (currentCall) currentCall.close();
             if (localStream) localStream.getTracks().forEach(t => t.stop());
             if (peer) peer.destroy();
