@@ -84,6 +84,16 @@
         .create-btn { background: linear-gradient(to bottom, #1a90ff, #0066cc); }
         .join-btn { background: linear-gradient(to bottom, #00c875, #009658); }
         .copy-btn { background: linear-gradient(to bottom, #9900ff, #6600cc); }
+        
+        /* 招待された側用の大きな「トークを始める」ボタン */
+        .big-start-btn {
+            background: linear-gradient(to bottom, #ff8c00, #cc7000);
+            font-size: 1.1rem;
+            padding: 12px;
+            width: 100%;
+            display: none;
+            margin-top: 4px;
+        }
 
         .invite-section {
             background: #252525;
@@ -343,12 +353,17 @@
                 <input type="text" id="my-name-input" placeholder="自分の名前">
                 <input type="text" id="new-room-id" placeholder="トーク名を入力">
                 <input type="password" id="new-room-pwd" placeholder="パスワード(必要な場合のみ)">
-                <div style="display: flex; gap: 6px;">
+                
+                <!-- 通常のボタン群 -->
+                <div id="normal-buttons" style="display: flex; gap: 6px;">
                     <button class="puku-btn create-btn" style="flex:1;" onclick="handleWaitAction()">相手を待つ</button>
                     <button class="puku-btn join-btn" style="flex:1;" onclick="handleSearchAction()">相手を探す</button>
                 </div>
+
+                <!-- 招待URLから開いたときにだけ表示される大きな参加ボタン -->
+                <button id="big-start-btn" class="puku-btn big-start-btn" onclick="handleInviteStartAction()">🚀 トークを始める</button>
                 
-                <!-- 招待URL・QRコード・ステータス表示エリア -->
+                <!-- 招待URL・QRコード表示エリア -->
                 <div id="invite-section" class="invite-section">
                     <div id="wait-status-label" style="font-size: 0.8rem; color: #ffaa00; font-weight: bold;">接続ステータス：待機中...</div>
                     <input type="text" id="invite-url-input" readonly style="font-size: 0.75rem; text-align: center; background: #222;" onclick="this.select()">
@@ -410,8 +425,8 @@
         let globalAudioCtx = null;
         let remotePartnerName = '未接続';
 
-        const PREFIX = 'puku_chat_v15_';
-        const ROOMS_KEY = 'puku_chat_rooms_list_v9';
+        const PREFIX = 'puku_chat_v16_';
+        const ROOMS_KEY = 'puku_chat_rooms_list_v10';
         const MYNAME_KEY = 'puku_chat_my_name';
 
         window.onload = function() {
@@ -426,11 +441,12 @@
                 document.getElementById('new-room-id').value = autoRoom;
                 document.getElementById('new-room-pwd').value = autoPwd;
                 
-                // 最初の画面のまま入力欄に反映し、接続ステータスを「探索中...」にして自動接続（探索）を開始する
-                setTimeout(() => {
-                    showInviteSection(autoRoom, autoPwd, '接続ステータス：探索中...');
-                    openRoomCustom(false, true); // 第2引数 true で「自動的に接続を試みる」
-                }, 400);
+                // 通常のボタンを隠し、大きな「トークを始める」ボタンを表示する
+                document.getElementById('normal-buttons').style.display = 'none';
+                document.getElementById('big-start-btn').style.display = 'block';
+                
+                // ステータスを「探索中」に設定
+                showInviteSection(autoRoom, autoPwd, '接続ステータス：探索中...');
             }
 
             renderRoomList();
@@ -545,6 +561,10 @@
                     document.getElementById('my-name-input').value = room.myName || '';
                     document.getElementById('new-room-id').value = room.id || '';
                     document.getElementById('new-room-pwd').value = room.pwd || '';
+                    
+                    // 通常画面での選択時は通常のボタンを表示
+                    document.getElementById('normal-buttons').style.display = 'flex';
+                    document.getElementById('big-start-btn').style.display = 'none';
                     showInviteSection(room.id, room.pwd, '接続ステータス：待機中');
                 };
 
@@ -627,7 +647,24 @@
             saveRoomToList(inputId, inputPwd, myName);
             renderRoomList();
 
-            openRoomCustom(false, false);
+            openRoomCustom(false);
+        }
+
+        // 招待URLから入った人が「🚀 トークを始める」ボタンを押したときの処理
+        async function handleInviteStartAction() {
+            await getAudioContext();
+            const myName = document.getElementById('my-name-input').value.trim() || 'あなた';
+            localStorage.setItem(MYNAME_KEY, myName);
+
+            const inputId = document.getElementById('new-room-id').value.trim();
+            const inputPwd = document.getElementById('new-room-pwd').value.trim();
+            if (!inputId) { alert('トーク名がありません'); return; }
+
+            saveRoomToList(inputId, inputPwd, myName);
+            renderRoomList();
+
+            // 確実にゲストとして探索＆チャットルームへ移行する
+            openRoomCustom(false);
         }
 
         function updateChatHeaderInfo() {
@@ -645,9 +682,7 @@
             }
         }
 
-        // openRoomCustom(asHost, autoConnect)
-        // autoConnect=true の場合、最初は画面遷移せずバックグラウンドで接続試行し、成功したらチャット画面に切り替わる
-        function openRoomCustom(asHost, autoConnect = false) {
+        function openRoomCustom(asHost) {
             currentRoomId = document.getElementById('new-room-id').value.trim();
             roomPassword = document.getElementById('new-room-pwd').value.trim();
             isHost = asHost;
@@ -656,12 +691,8 @@
             let room = rooms.find(r => r.id === currentRoomId);
             remotePartnerName = (room && room.partnerName) ? room.partnerName : '未接続';
 
-            // 自動接続モード（URLアクセス時）のときは最初チャット画面に飛ばさず待機画面のまま探索を走らせる
-            if (!autoConnect) {
-                document.getElementById('room-list-screen').style.display = 'none';
-                document.getElementById('chat-screen').style.display = 'flex';
-            }
-
+            document.getElementById('room-list-screen').style.display = 'none';
+            document.getElementById('chat-screen').style.display = 'flex';
             updateChatHeaderInfo();
             
             if (!asHost) {
@@ -681,11 +712,11 @@
                 if (!asHost) {
                     const targetId = PREFIX + safeCode + '_host';
                     conn = peer.connect(targetId);
-                    setupConnection(autoConnect);
+                    setupConnection();
 
                     searchTimer = setTimeout(() => {
                         if (!conn || !conn.open) {
-                            upgradeToHost(autoConnect);
+                            upgradeToHost();
                         }
                     }, 4000);
                 } else {
@@ -696,19 +727,10 @@
             peer.on('connection', (connection) => {
                 if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
                 conn = connection;
-                // ホスト側にゲストから接続があった場合、URL自動接続中ならここでチャット画面へ切り替える
-                if (autoConnect) {
-                    document.getElementById('room-list-screen').style.display = 'none';
-                    document.getElementById('chat-screen').style.display = 'flex';
-                }
-                setupConnection(false);
+                setupConnection();
             });
 
             peer.on('call', (call) => {
-                if (autoConnect) {
-                    document.getElementById('room-list-screen').style.display = 'none';
-                    document.getElementById('chat-screen').style.display = 'flex';
-                }
                 currentCall = call;
                 updateCallStatusUI('incoming', '🚨 着信中...', '「通話」ボタンで応答');
                 document.getElementById('start-call-btn').innerText = '📞 応答';
@@ -716,7 +738,7 @@
             });
         }
 
-        function upgradeToHost(autoConnect) {
+        function upgradeToHost() {
             if (peer) { peer.destroy(); }
             isHost = true;
             setConnectionStatus('相手を待っています', '#ffaa00');
@@ -727,18 +749,10 @@
 
             peer.on('connection', (connection) => {
                 conn = connection;
-                if (autoConnect) {
-                    document.getElementById('room-list-screen').style.display = 'none';
-                    document.getElementById('chat-screen').style.display = 'flex';
-                }
-                setupConnection(false);
+                setupConnection();
             });
 
             peer.on('call', (call) => {
-                if (autoConnect) {
-                    document.getElementById('room-list-screen').style.display = 'none';
-                    document.getElementById('chat-screen').style.display = 'flex';
-                }
                 currentCall = call;
                 updateCallStatusUI('incoming', '🚨 着信中...', '「通話」ボタンで応答');
                 document.getElementById('start-call-btn').innerText = '📞 応答';
@@ -754,15 +768,10 @@
             el.style.fontSize = isBold ? '0.85rem' : '0.75rem';
         }
 
-        function setupConnection(autoConnect = false) {
+        function setupConnection() {
             if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
 
             conn.on('open', () => {
-                // 接続が確立したら、URL自動接続中であってもトークルーム画面へ移動する
-                if (autoConnect) {
-                    document.getElementById('room-list-screen').style.display = 'none';
-                    document.getElementById('chat-screen').style.display = 'flex';
-                }
                 setConnectionStatus('接続中', '#00ffcc', true);
                 const myName = document.getElementById('my-name-input').value.trim() || 'あなた';
                 conn.send({ type: 'handshake', name: myName, password: roomPassword || '' });
@@ -821,9 +830,13 @@
             document.getElementById('chat-screen').style.display = 'none';
             document.getElementById('room-list-screen').style.display = 'flex';
             
-            // 戻ったときにURLパラメータが残っている場合はクリーンアップ
             if (window.location.search) {
                 window.history.replaceState({}, document.title, window.location.pathname);
+                document.getElementById('big-start-btn').style.display = 'none';
+                document.getElementById('normal-buttons').style.display = 'flex';
+                document.getElementById('new-room-id').value = '';
+                document.getElementById('new-room-pwd').value = '';
+                document.getElementById('invite-section').style.display = 'none';
             }
             renderRoomList();
         }
@@ -929,14 +942,6 @@
             document.getElementById('start-call-btn').innerText = '📞 通話';
             document.getElementById('start-call-btn').style.display = 'inline-block';
             document.getElementById('hangup-btn').style.display = 'none';
-        }
-
-        function updateCallStatusUI(state, mainText, subText = '') {
-            const statusEl = document.getElementById('call-status');
-            const barEl = document.getElementById('call-bar');
-            statusEl.innerHTML = `<div class="status-main">${mainText}</div>` + (subText ? `<div class="status-sub">${subText}</div>` : '');
-            statusEl.className = 'status-' + state;
-            barEl.style.background = state === 'connected' ? '#1a332a' : (state === 'calling' ? '#362a15' : (state === 'incoming' ? '#421a1a' : '#2b2b2b'));
         }
 
         function handleKeyPress(e) { if (e.key === 'Enter') sendText(); }
