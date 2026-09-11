@@ -417,11 +417,11 @@
         let roomPassword = '';
         let isHost = false;
         let ringtoneTimer = null;
-        let searchTimer = null;
+        let retryTimer = null;
         let globalAudioCtx = null;
         let remotePartnerName = '未接続';
 
-        const PREFIX = 'puku_chat_v19_';
+        const PREFIX = 'puku_chat_v20_';
         const ROOMS_KEY = 'puku_chat_rooms_list_v12';
         const MYNAME_KEY = 'puku_chat_my_name';
 
@@ -642,7 +642,6 @@
             saveRoomToList(inputId, inputPwd, myName);
             renderRoomList();
 
-            // 修正：URLから入った側（ゲスト）として、ホストに接続しにいく
             connectToRoomAsGuest(inputId, inputPwd);
         }
 
@@ -683,6 +682,7 @@
             peer = new Peer(myPeerId);
 
             peer.on('connection', (connection) => {
+                if (retryTimer) { clearInterval(retryTimer); retryTimer = null; }
                 conn = connection;
                 setupConnection();
             });
@@ -717,9 +717,19 @@
             peer = new Peer(myPeerId);
 
             peer.on('open', () => {
-                const targetId = PREFIX + safeCode + '_host';
-                conn = peer.connect(targetId);
-                setupConnection();
+                attemptConnectionToHost(safeCode);
+                
+                // 相手がまだ準備できていない場合に備えて、3秒ごとに自動で接続リトライを行う
+                if (retryTimer) clearInterval(retryTimer);
+                retryTimer = setInterval(() => {
+                    if (!conn || !conn.open) {
+                        setConnectionStatus('再接続を試みています...', '#ffaa00');
+                        attemptConnectionToHost(safeCode);
+                    } else {
+                        clearInterval(retryTimer);
+                        retryTimer = null;
+                    }
+                }, 3000);
             });
 
             peer.on('call', (call) => {
@@ -727,6 +737,18 @@
                 updateCallStatusUI('incoming', '🚨 着信中...', '「通話」ボタンで応答');
                 document.getElementById('start-call-btn').innerText = '📞 応答';
                 startRingtone();
+            });
+        }
+
+        function attemptConnectionToHost(safeCode) {
+            if (!peer || peer.destroyed) return;
+            const targetId = PREFIX + safeCode + '_host';
+            const tempConn = peer.connect(targetId);
+            
+            tempConn.on('open', () => {
+                if (retryTimer) { clearInterval(retryTimer); retryTimer = null; }
+                conn = tempConn;
+                setupConnection();
             });
         }
 
@@ -739,13 +761,11 @@
         }
 
         function setupConnection() {
-            if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
+            if (retryTimer) { clearInterval(retryTimer); retryTimer = null; }
 
-            conn.on('open', () => {
-                setConnectionStatus('接続中', '#00ffcc', true);
-                const myName = document.getElementById('my-name-input').value.trim() || 'あなた';
-                conn.send({ type: 'handshake', name: myName, password: roomPassword || '' });
-            });
+            setConnectionStatus('接続中', '#00ffcc', true);
+            const myName = document.getElementById('my-name-input').value.trim() || 'あなた';
+            conn.send({ type: 'handshake', name: myName, password: roomPassword || '' });
 
             conn.on('close', () => {
                 setConnectionStatus('切断されました', '#ff4d4d', true);
@@ -791,7 +811,7 @@
 
         function returnToList() {
             stopRingtone();
-            if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
+            if (retryTimer) { clearInterval(retryTimer); retryTimer = null; }
             if (currentCall) currentCall.close();
             if (localStream) localStream.getTracks().forEach(t => t.stop());
             if (peer) peer.destroy();
