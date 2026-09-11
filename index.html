@@ -354,8 +354,8 @@
                 <input type="password" id="new-room-pwd" placeholder="パスワード(必要な場合のみ)">
                 
                 <div id="normal-buttons" style="display: flex; gap: 6px;">
-                    <button class="puku-btn create-btn" style="flex:1;" onclick="handleWaitAction()">相手を待つ</button>
-                    <button class="puku-btn join-btn" style="flex:1;" onclick="handleSearchAction()">相手を探す</button>
+                    <button class="puku-btn create-btn" style="flex:1;" onclick="openRoomCustom(true)">相手を待つ</button>
+                    <button class="puku-btn join-btn" style="flex:1;" onclick="openRoomCustom(false)">相手を探す</button>
                 </div>
 
                 <button id="big-start-btn" class="puku-btn big-start-btn" onclick="handleInviteStartAction()">🚀 トークを始める</button>
@@ -417,12 +417,12 @@
         let roomPassword = '';
         let isHost = false;
         let ringtoneTimer = null;
-        let searchRetryTimer = null;
+        let searchTimer = null;
         let globalAudioCtx = null;
         let remotePartnerName = '未接続';
 
-        const PREFIX = 'puku_chat_v17_';
-        const ROOMS_KEY = 'puku_chat_rooms_list_v11';
+        const PREFIX = 'puku_chat_v18_';
+        const ROOMS_KEY = 'puku_chat_rooms_list_v12';
         const MYNAME_KEY = 'puku_chat_my_name';
 
         window.onload = function() {
@@ -439,7 +439,7 @@
                 document.getElementById('normal-buttons').style.display = 'none';
                 document.getElementById('big-start-btn').style.display = 'block';
                 
-                showInviteSection(autoRoom, autoPwd, '接続ステータス：探索中...');
+                showInviteSection(autoRoom, autoPwd, '接続ステータス：待機中');
             }
 
             renderRoomList();
@@ -610,7 +610,7 @@
             });
         }
 
-        async function handleWaitAction() {
+        async function openRoomCustom(asHost) {
             await getAudioContext();
             const myName = document.getElementById('my-name-input').value.trim() || 'あなた';
             localStorage.setItem(MYNAME_KEY, myName);
@@ -622,22 +622,12 @@
             saveRoomToList(inputId, inputPwd, myName);
             renderRoomList();
             
-            showInviteSection(inputId, inputPwd, '接続ステータス：待機中');
-        }
-
-        async function handleSearchAction() {
-            await getAudioContext();
-            const myName = document.getElementById('my-name-input').value.trim() || 'あなた';
-            localStorage.setItem(MYNAME_KEY, myName);
-
-            const inputId = document.getElementById('new-room-id').value.trim();
-            const inputPwd = document.getElementById('new-room-pwd').value.trim();
-            if (!inputId) { alert('トーク名を入力してください'); return; }
-
-            saveRoomToList(inputId, inputPwd, myName);
-            renderRoomList();
-
-            openRoomCustom(false);
+            if (asHost) {
+                showInviteSection(inputId, inputPwd, '接続ステータス：待機中');
+                connectToRoomAsHost(inputId, inputPwd);
+            } else {
+                connectToRoomAsGuest(inputId, inputPwd);
+            }
         }
 
         async function handleInviteStartAction() {
@@ -652,7 +642,8 @@
             saveRoomToList(inputId, inputPwd, myName);
             renderRoomList();
 
-            openRoomCustom(false);
+            // URLから入った側はスマート接続（見つからなければ自動でホストになる）を使ってすぐにつながりやすくする
+            connectToRoomSmart(inputId, inputPwd);
         }
 
         function updateChatHeaderInfo() {
@@ -670,42 +661,46 @@
             }
         }
 
-        function openRoomCustom(asHost) {
-            currentRoomId = document.getElementById('new-room-id').value.trim();
-            roomPassword = document.getElementById('new-room-pwd').value.trim();
-            isHost = asHost;
+        function connectToRoomSmart(roomId, password) {
+            currentRoomId = roomId;
+            roomPassword = password;
+            isHost = false;
             
             let rooms = getSavedRooms();
-            let room = rooms.find(r => r.id === currentRoomId);
+            let room = rooms.find(r => r.id === roomId);
             remotePartnerName = (room && room.partnerName) ? room.partnerName : '未接続';
+
+            if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
 
             document.getElementById('room-list-screen').style.display = 'none';
             document.getElementById('chat-screen').style.display = 'flex';
             updateChatHeaderInfo();
-            
-            if (!asHost) {
-                setConnectionStatus('探索中...', '#ffaa00');
-            } else {
-                setConnectionStatus('相手を待っています', '#ffaa00');
-            }
+            setConnectionStatus('接続中...', '#aaa');
             
             loadHistory();
             if (peer) { peer.destroy(); }
 
             const safeCode = convertToSafeId(currentRoomId);
-            const myPeerId = PREFIX + safeCode + (asHost ? '_host' : '_guest_' + Math.floor(Math.random() * 1000));
+            const myPeerId = PREFIX + safeCode + '_guest_' + Math.floor(Math.random() * 1000);
             peer = new Peer(myPeerId);
 
             peer.on('open', () => {
-                if (!asHost) {
-                    attemptConnectToHost(safeCode);
-                } else {
-                    setConnectionStatus('相手を待っています', '#ffaa00');
-                }
+                const targetId = PREFIX + safeCode + '_host';
+                setConnectionStatus('相手を探しています...', '#ffaa00');
+                conn = peer.connect(targetId);
+                setupConnection();
+
+                searchTimer = setTimeout(() => {
+                    if (!conn || !conn.open) {
+                        if (document.getElementById('connection-status').innerText.includes('相手を探しています')) {
+                            upgradeToHost();
+                        }
+                    }
+                }, 5000);
             });
 
             peer.on('connection', (connection) => {
-                if (searchRetryTimer) { clearInterval(searchRetryTimer); searchRetryTimer = null; }
+                if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
                 conn = connection;
                 setupConnection();
             });
@@ -718,30 +713,95 @@
             });
         }
 
-        // ゲスト側がホストが見つかるまで何度でも接続をリトライする関数（勝手にホストに変身しない）
-        function attemptConnectToHost(safeCode) {
-            if (isHost) return; // すでにホストになっていれば何もしない
+        function upgradeToHost() {
+            if (peer) { peer.destroy(); }
+            isHost = true;
+            setConnectionStatus('相手を待っています', '#ffaa00');
 
-            const targetId = PREFIX + safeCode + '_host';
-            conn = peer.connect(targetId);
-            setupConnection();
+            const safeCode = convertToSafeId(currentRoomId);
+            const myPeerId = PREFIX + safeCode + '_host';
+            peer = new Peer(myPeerId);
 
-            // もし2秒以内に接続が確立しなければ、一度閉じてもう一度コネクトし直す（リトライ）
-            if (searchRetryTimer) clearInterval(searchRetryTimer);
-            searchRetryTimer = setInterval(() => {
-                if (isHost) {
-                    clearInterval(searchRetryTimer);
-                    return;
-                }
-                if (conn && conn.open) {
-                    clearInterval(searchRetryTimer);
-                    searchRetryTimer = null;
-                } else {
-                    setConnectionStatus('探索中... (再試行中)', '#ffaa00');
-                    conn = peer.connect(targetId);
-                    setupConnection();
-                }
-            }, 2500);
+            peer.on('connection', (connection) => {
+                conn = connection;
+                setupConnection();
+            });
+
+            peer.on('call', (call) => {
+                currentCall = call;
+                updateCallStatusUI('incoming', '🚨 着信中...', '「通話」ボタンで応答');
+                document.getElementById('start-call-btn').innerText = '📞 応答';
+                startRingtone();
+            });
+        }
+
+        function connectToRoomAsHost(roomId, password) {
+            currentRoomId = roomId;
+            roomPassword = password;
+            isHost = true;
+            
+            let rooms = getSavedRooms();
+            let room = rooms.find(r => r.id === roomId);
+            remotePartnerName = (room && room.partnerName) ? room.partnerName : '未接続';
+
+            document.getElementById('room-list-screen').style.display = 'none';
+            document.getElementById('chat-screen').style.display = 'flex';
+            updateChatHeaderInfo();
+            setConnectionStatus('相手を待っています', '#ffaa00');
+            
+            loadHistory();
+            if (peer) { peer.destroy(); }
+
+            const safeCode = convertToSafeId(currentRoomId);
+            const myPeerId = PREFIX + safeCode + '_host';
+            peer = new Peer(myPeerId);
+
+            peer.on('connection', (connection) => {
+                conn = connection;
+                setupConnection();
+            });
+
+            peer.on('call', (call) => {
+                currentCall = call;
+                updateCallStatusUI('incoming', '🚨 着信中...', '「通話」ボタンで応答');
+                document.getElementById('start-call-btn').innerText = '📞 応答';
+                startRingtone();
+            });
+        }
+
+        function connectToRoomAsGuest(roomId, password) {
+            currentRoomId = roomId;
+            roomPassword = password;
+            isHost = false;
+            
+            let rooms = getSavedRooms();
+            let room = rooms.find(r => r.id === roomId);
+            remotePartnerName = (room && room.partnerName) ? room.partnerName : '未接続';
+
+            document.getElementById('room-list-screen').style.display = 'none';
+            document.getElementById('chat-screen').style.display = 'flex';
+            updateChatHeaderInfo();
+            setConnectionStatus('接続中...', '#aaa');
+            
+            loadHistory();
+            if (peer) { peer.destroy(); }
+
+            const safeCode = convertToSafeId(currentRoomId);
+            const myPeerId = PREFIX + safeCode + '_guest_' + Math.floor(Math.random() * 1000);
+            peer = new Peer(myPeerId);
+
+            peer.on('open', () => {
+                const targetId = PREFIX + safeCode + '_host';
+                conn = peer.connect(targetId);
+                setupConnection();
+            });
+
+            peer.on('call', (call) => {
+                currentCall = call;
+                updateCallStatusUI('incoming', '🚨 着信中...', '「通話」ボタンで応答');
+                document.getElementById('start-call-btn').innerText = '📞 応答';
+                startRingtone();
+            });
         }
 
         function setConnectionStatus(text, color, isBold = false) {
@@ -753,10 +813,9 @@
         }
 
         function setupConnection() {
-            if (!conn) return;
+            if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
 
             conn.on('open', () => {
-                if (searchRetryTimer) { clearInterval(searchRetryTimer); searchRetryTimer = null; }
                 setConnectionStatus('接続中', '#00ffcc', true);
                 const myName = document.getElementById('my-name-input').value.trim() || 'あなた';
                 conn.send({ type: 'handshake', name: myName, password: roomPassword || '' });
@@ -806,7 +865,7 @@
 
         function returnToList() {
             stopRingtone();
-            if (searchRetryTimer) { clearInterval(searchRetryTimer); searchRetryTimer = null; }
+            if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
             if (currentCall) currentCall.close();
             if (localStream) localStream.getTracks().forEach(t => t.stop());
             if (peer) peer.destroy();
@@ -927,6 +986,14 @@
             document.getElementById('start-call-btn').innerText = '📞 通話';
             document.getElementById('start-call-btn').style.display = 'inline-block';
             document.getElementById('hangup-btn').style.display = 'none';
+        }
+
+        function updateCallStatusUI(state, mainText, subText = '') {
+            const statusEl = document.getElementById('call-status');
+            const barEl = document.getElementById('call-bar');
+            statusEl.innerHTML = `<div class="status-main">${mainText}</div>` + (subText ? `<div class="status-sub">${subText}</div>` : '');
+            statusEl.className = 'status-' + state;
+            barEl.style.background = state === 'connected' ? '#1a332a' : (state === 'calling' ? '#362a15' : (state === 'incoming' ? '#421a1a' : '#2b2b2b'));
         }
 
         function handleKeyPress(e) { if (e.key === 'Enter') sendText(); }
